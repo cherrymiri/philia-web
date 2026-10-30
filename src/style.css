@@ -133,6 +133,46 @@ html, body {
   transform: translate(-50%, 8px);
 }
 
+/* ---------- 친구의 실수 이벤트 안내 ---------- */
+.prompt {
+  position: absolute;
+  left: 50%;
+  top: 19%;
+  transform: translate(-50%, 6px);
+  margin: 0;
+  font-size: 16px;
+  font-weight: 300;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  text-shadow: 0 0 18px rgba(0, 0, 0, 0.9), 0 0 24px rgba(255, 190, 150, 0.35);
+  opacity: 0;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+  white-space: nowrap;
+}
+.prompt.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- 판정 PERFECT / GOOD / MISS ---------- */
+.judge {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font-family: var(--serif);
+  font-size: 17px;
+  letter-spacing: 0.24em;
+  padding-left: 0.24em;
+  opacity: 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.judge.show { animation: judge-pop 0.65s ease-out forwards; }
+.judge.perfect { color: #fff1d6; text-shadow: 0 0 14px rgba(255, 214, 140, 0.85); }
+.judge.good { color: rgba(255, 236, 220, 0.85); text-shadow: 0 0 10px rgba(255, 190, 160, 0.5); }
+.judge.miss { color: rgba(255, 232, 225, 0.6); font-style: italic; }
+@keyframes judge-pop {
+  0% { opacity: 0; transform: translate(-50%, -80%) scale(0.92); }
+  18% { opacity: 1; transform: translate(-50%, -100%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -160%) scale(1); }
+}
+
 /* ---------- 왼발 / 오른발 버튼 ---------- */
 .controls {
   position: absolute;
@@ -172,6 +212,14 @@ html, body {
 }
 #btn-left.pressed { box-shadow: 0 0 28px rgba(255, 214, 130, 0.6), inset 0 0 18px rgba(255, 226, 160, 0.3); }
 #btn-right.pressed { box-shadow: 0 0 28px rgba(255, 170, 145, 0.6), inset 0 0 18px rgba(255, 196, 176, 0.3); }
+/* 지금 눌러야 할 버튼을 은은하게 */
+.foot.cue { border-color: rgba(255, 228, 196, 0.55); box-shadow: 0 0 16px rgba(255, 205, 150, 0.22); }
+/* 친구를 도와줄 버튼: 부드럽게 숨쉬듯 */
+.foot.cue-strong { animation: cue-breathe 1.3s ease-in-out infinite; }
+@keyframes cue-breathe {
+  0%, 100% { box-shadow: 0 0 14px rgba(255, 200, 150, 0.3); border-color: rgba(255, 228, 196, 0.5); }
+  50% { box-shadow: 0 0 34px rgba(255, 190, 140, 0.7); border-color: rgba(255, 236, 214, 0.95); }
+}
 .controls.disabled { opacity: 0; }
 .controls.disabled .foot { pointer-events: none; }
 
@@ -179,30 +227,35 @@ html, body {
 .ending {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  padding-top: 22vh;
-  gap: 34px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 2s ease;
+  transition: opacity 2.2s ease;
 }
 .ending.show { opacity: 1; }
+/* 문구는 화면 정중앙에 고정 */
 .ending h2 {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   margin: 0;
+  white-space: nowrap;
   font-family: var(--serif);
   font-weight: 500;
-  font-size: clamp(34px, 7vw, 76px);
-  letter-spacing: 0.14em;
-  background: linear-gradient(90deg, #ffe7b0 0%, #fff4e6 50%, #ffc6b4 100%);
+  font-size: clamp(26px, 4.2vw, 50px);
+  letter-spacing: 0.16em;
+  padding-left: 0.16em; /* 자간 보정으로 시각적 중앙 */
+  background: linear-gradient(90deg, #ffe2a6 0%, #fff3e6 50%, #ffc4b2 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 0 22px rgba(255, 200, 150, 0.45));
-  text-align: center;
-  padding: 0 16px;
+  filter: drop-shadow(0 0 14px rgba(255, 200, 150, 0.32));
+}
+.ending #btn-again {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + clamp(44px, 5.5vw, 64px));
+  transform: translateX(-50%);
 }
 #btn-again {
   pointer-events: none;
@@ -221,7 +274,7 @@ html, body {
 }
 #btn-again.show { opacity: 1; pointer-events: auto; }
 #btn-again:hover { background: rgba(255, 236, 214, 0.12); box-shadow: 0 0 22px rgba(255, 200, 150, 0.35); }
-#btn-again:active { transform: scale(0.95); }
+#btn-again:active { transform: translateX(-50%) scale(0.95); }
 
 /* ---------- 로딩 ---------- */
 .loader {

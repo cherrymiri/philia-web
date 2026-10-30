@@ -3,7 +3,7 @@ import * as THREE from 'three';
 const CAPACITY = 220;
 
 /** 오른발 맨발 자국(위에서 본 모습, 발가락이 위쪽)을 캔버스에 그림 → 왼발은 좌우 반전으로 사용 */
-function makeFootTexture() {
+export function makeFootTexture() {
   const W = 256, H = 512;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
@@ -125,11 +125,14 @@ export function createFootprints() {
           // 실제 발자국: 착지 순간 밝게 → 은은하게 남음 → 오래된 것은 희미하게
           float appear = smoothstep(0.0, 0.12, age);
           float flash = 1.0 + 0.9 * exp(-age * 3.0);
-          float settle = mix(1.0, 0.32, smoothstep(10.0, 24.0, age));
-          k = appear * flash * max(settle, uReveal * 0.85);
+          // 오래된 발자국은 자연스럽게 사라져 화면이 복잡해지지 않음
+          float settle = mix(0.85, 0.0, smoothstep(8.0, 18.0, age));
+          // 엔딩: 최근에 함께 걸어온 구간만 다시 은은하게 떠오름
+          float recentPath = 1.0 - smoothstep(14.0, 24.0, age);
+          k = appear * flash * max(settle, uReveal * 0.7 * recentPath);
         } else {
           // 엔딩 이후 멀리 이어지는 발자국 길
-          k = smoothstep(0.0, 0.9, age) * 0.55;
+          k = smoothstep(0.0, 1.2, age) * 0.5;
         }
         float far = length(vWorld.xz - cameraPosition.xz);
         k *= 1.0 - smoothstep(5.0, 16.0, far);
