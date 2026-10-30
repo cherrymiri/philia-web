@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>PHILIA — 친구의 사랑</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&family=Noto+Sans+KR:wght@300;400&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <div id="ui">
+      <header class="title">
+        <h1>PHILIA</h1>
+        <p>친구의 사랑</p>
+      </header>
+
+      <div class="sync" aria-label="SYNC">
+        <span class="sync-label">SYNC</span>
+        <div class="sync-bar"><div class="sync-fill"></div></div>
+        <span class="sync-pct">0%</span>
+      </div>
+
+      <p class="hint">왼발과 오른발을 번갈아 눌러 함께 걸어보세요.</p>
+
+      <div class="controls">
+        <button class="foot" id="btn-left" data-group="0" type="button">왼발</button>
+        <button class="foot" id="btn-right" data-group="1" type="button">오른발</button>
+      </div>
+
+      <div class="ending" aria-hidden="true">
+        <h2>WE'RE BESTIES!</h2>
+        <button id="btn-again" type="button">다시 걷기</button>
+      </div>
+
+      <div class="loader"><span></span></div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
