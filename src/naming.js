@@ -8,7 +8,7 @@ const THEME_OF = {
   AURORA: 'deep', LAVENDER: 'deep',
 };
 // Counted per pour or drop, so a pinch of 42 glitter weighs the same as a pour of stars.
-const PER_USE = { STAR: 5, HEART: 5, RIBBON: 4, PEARL: 7, SEQUIN: 8, AURORA: 4, GLITTER: 42, PEACH: 2, MINT: 2, LAVENDER: 2 };
+const PER_USE = { STAR: 10, HEART: 10, RIBBON: 8, PEARL: 14, SEQUIN: 16, AURORA: 8, GLITTER: 84, PEACH: 2, MINT: 2, LAVENDER: 2 };
 
 const NAMES = {
   sparkle: { solo: '반짝이는 추억의 말랑이', warm: '따스하게 빛나는 말랑이', comfort: '은은하게 빛나는 말랑이', bond: '반짝임이 이어진 말랑이', deep: '깊게 반짝이는 말랑이', play: '반짝반짝 들뜬 말랑이' },

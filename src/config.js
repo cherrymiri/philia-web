@@ -14,16 +14,16 @@ export const INGREDIENTS = [
 
 // Clones inside the gel only. Masters and the cup displays stay at real size.
 export const PART = {
-  STAR: { scale: 1.5, radius: 0.0027, perPour: 5, restTilt: 46 },
-  HEART: { scale: 1.5, radius: 0.0027, perPour: 5, restTilt: 46 },
-  RIBBON: { scale: 1.6, radius: 0.0037, perPour: 4, restTilt: -46, upright: true },
-  PEARL: { scale: 1.3, radius: 0.0017, perPour: 7, restTilt: 0 },
-  SEQUIN: { scale: 1.4, radius: 0.0025, perPour: 8, restTilt: 38 },
-  AURORA: { scale: 1.0, radius: 0.0034, perPour: 4, restTilt: 34 },
-  GLITTER: { scale: 5, radius: 0.0007, perPour: 42, spread: 0.009, restTilt: 0 },
+  STAR: { scale: 1.5, radius: 0.0027, perPour: 10, restTilt: 46 },
+  HEART: { scale: 1.5, radius: 0.0027, perPour: 10, restTilt: 46 },
+  RIBBON: { scale: 1.6, radius: 0.0037, perPour: 8, restTilt: -46, upright: true },
+  PEARL: { scale: 1.3, radius: 0.0017, perPour: 14, restTilt: 0 },
+  SEQUIN: { scale: 1.4, radius: 0.0025, perPour: 16, restTilt: 38 },
+  AURORA: { scale: 1.0, radius: 0.0034, perPour: 8, restTilt: 34 },
+  GLITTER: { scale: 5, radius: 0.0007, perPour: 84, spread: 0.009, restTilt: 0 },
 };
 
-export const MAX_VISIBLE = { default: 260, GLITTER: 1800 }; // display only; the record keeps everything
+export const MAX_VISIBLE = { default: 420, GLITTER: 3000 }; // display only; the record keeps everything
 
 // Vivid so one drop reads inside the gel. Bottle liquid keeps its GLB colour.
 export const PIGMENT = {
@@ -34,11 +34,12 @@ export const PIGMENT = {
 export const BLOB = { radius: 0.0068, flat: 0.5 };
 
 export const POUR = { tilt: 0.66, rimHeight: 0.066, gravity: 0.8, sink: 0.55 };
+// azimuth: degrees around the gel, negative = camera moves to the serum side.
 export const CAMERA = {
-  wide: { fov: 13, elevation: 47, target: [0, 0.012, -0.02], halfW: 0.232, halfH: 0.15 },
-  portrait: { fov: 13, elevation: 58, target: [0, 0.012, 0.082], halfW: 0.125, halfH: 0.25 },
-  ending: { elevation: 42, target: [0, 0.006, 0.022], halfW: 0.13, halfH: 0.088 },
-  endingPortrait: { elevation: 42, target: [0, 0.006, 0.03], halfW: 0.075, halfH: 0.14 },
-  mix: { elevation: 54, target: [0, 0.008, 0.002], halfW: 0.13, halfH: 0.082 },
-  mixPortrait: { elevation: 58, target: [0, 0.008, 0.002], halfW: 0.074, halfH: 0.13 },
+  wide: { fov: 16, elevation: 31, azimuth: -6, target: [0.003, 0.018, -0.04], halfW: 0.242, halfH: 0.128 },
+  portrait: { fov: 20, elevation: 54, azimuth: 0, target: [0, 0.012, 0.082], halfW: 0.125, halfH: 0.25 },
+  mix: { fov: 18, elevation: 50, azimuth: 0, target: [0, 0.008, 0.002], halfW: 0.13, halfH: 0.082 },
+  mixPortrait: { fov: 18, elevation: 54, azimuth: 0, target: [0, 0.008, 0.002], halfW: 0.074, halfH: 0.13 },
+  ending: { fov: 18, elevation: 38, azimuth: 0, target: [0, 0.006, 0.022], halfW: 0.13, halfH: 0.088 },
+  endingPortrait: { fov: 18, elevation: 38, azimuth: 0, target: [0, 0.006, 0.03], halfW: 0.075, halfH: 0.14 },
 };

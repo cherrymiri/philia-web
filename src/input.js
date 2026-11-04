@@ -14,28 +14,28 @@ export function gelPoint(camera, x, y) {
 
 // Mouse and touch: only turns pointers into engine commands.
 export function attachPointer({ canvas, camera, engine, enabled }) {
-  let id = null;
+  const active = new Set();
   const onGel = (ev) => {
     const r = canvas.getBoundingClientRect();
     return gelPoint(camera, ((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
   };
+  const key = (ev) => `pointer${ev.pointerId}`;
   canvas.addEventListener('pointerdown', (ev) => {
-    if (!enabled() || id !== null) return;
+    if (!enabled()) return;
     const p = onGel(ev);
-    if (p && engine.press(p)) {
-      id = ev.pointerId;
-      canvas.setPointerCapture(id);
+    if (p && engine.press(p, key(ev))) {
+      active.add(ev.pointerId);
+      canvas.setPointerCapture(ev.pointerId);
     }
   });
   canvas.addEventListener('pointermove', (ev) => {
-    if (ev.pointerId !== id) return;
+    if (!active.has(ev.pointerId)) return;
     const p = onGel(ev);
-    if (p) engine.drag(p);
+    if (p) engine.drag(p, key(ev));
   });
   const end = (ev) => {
-    if (ev.pointerId !== id) return;
-    id = null;
-    engine.release();
+    if (!active.delete(ev.pointerId)) return;
+    engine.release(key(ev));
   };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);

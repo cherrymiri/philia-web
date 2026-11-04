@@ -46,4 +46,5 @@ export function summary() {
   };
 }
 export function touch() { save(); }
+export function setWork(w) { store.work = w; save(); }
 export const snapshot = () => JSON.parse(JSON.stringify(store));

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import './style.css';
 import { INGREDIENTS, PART, PIGMENT, BLOB, POUR, CAMERA, MAX_VISIBLE } from './config.js';
 import { DeformEngine } from './mix/deform.js';
@@ -13,7 +12,7 @@ import { makeName } from './naming.js';
 import { renderStill, composeCard, saveCanvas } from './save.js';
 import * as store from './state.js';
 import { animate, wait, ease, stepTweens } from './tween.js';
-import { applyGel, buildVolume } from './gel.js';
+import { applyGel, buildVolume, edgeLight, tint } from './gel.js';
 import { PartLayer, Ripples } from './layers.js';
 
 const app = document.getElementById('app');
@@ -23,12 +22,50 @@ renderer.toneMapping = THREE.NeutralToneMapping;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
-scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.5;
-const key = new THREE.DirectionalLight(0xffffff, 0.9);
-key.position.set(0.05, 0.4, 0.2);
+
+// Studio on black: a large soft box above, thin strips at the sides, two faint coloured kickers
+// behind. Glass on black only shows what it reflects, so this is what draws its edges.
+function studioEnvironment() {
+  const s = new THREE.Scene();
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const r = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+  r.addColorStop(0, '#fff');
+  r.addColorStop(0.55, '#aaa');
+  r.addColorStop(1, '#000');
+  g.fillStyle = r;
+  g.fillRect(0, 0, 128, 128);
+  const soft = new THREE.CanvasTexture(c);
+  const panel = (w, h, pos, intensity, color = 0xffffff) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: soft, color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    m.position.set(...pos);
+    m.lookAt(0, 0, 0);
+    s.add(m);
+  };
+  panel(12, 8, [0, 7, 1], 4.5);
+  panel(2.4, 12, [-8, 2.4, 2.5], 12);
+  panel(1.8, 12, [8, 2, 1], 9);
+  panel(11, 3, [0, 1.4, -8], 6, 0xffd9ec);
+  panel(9, 2.4, [-3, 0.6, 8], 3.2, 0xd9e4ff);
+  const pm = new THREE.PMREMGenerator(renderer);
+  const t = pm.fromScene(s, 0.03).texture;
+  pm.dispose();
+  return t;
+}
+const studio = studioEnvironment();
+scene.environment = studio;
+scene.environmentIntensity = 0.62;
+const key = new THREE.DirectionalLight(0xfff6f0, 1.05);
+key.position.set(-0.16, 0.34, 0.24);
 scene.add(key);
-const camera = new THREE.PerspectiveCamera(13, 1, 0.02, 8);
+const rimL = new THREE.DirectionalLight(0xdfe6ff, 0.75);
+rimL.position.set(-0.3, 0.12, -0.3);
+scene.add(rimL);
+const rimR = new THREE.DirectionalLight(0xffdcea, 0.6);
+rimR.position.set(0.32, 0.14, -0.26);
+scene.add(rimR);
+const camera = new THREE.PerspectiveCamera(24, 1, 0.02, 8);
 
 const items = new Map();       // id -> { def, node, home, proxy, label, busy }
 const layers = {};             // part type -> PartLayer
@@ -44,9 +81,9 @@ const pending = new Set();     // falling parts/drops still animating
 /* ---------- layout ---------- */
 function wideSlots() {
   return [
-    [-0.205, 0.045], [-0.163, -0.012], [-0.128, -0.078],                  // serums
-    [-0.076, -0.104], [-0.026, -0.11], [0.026, -0.11], [0.076, -0.104],    // back row
-    [0.128, -0.078], [0.166, -0.012], [0.205, 0.045],                     // right side
+    [-0.196, 0.018], [-0.152, -0.03], [-0.112, -0.082],                  // serums, left
+    [-0.058, -0.118], [-0.008, -0.13], [0.043, -0.13], [0.094, -0.118],   // cups, behind
+    [0.142, -0.09], [0.178, -0.04], [0.2, 0.018],                        // cups, right
   ];
 }
 function portraitSlots() {
@@ -56,14 +93,17 @@ function portraitSlots() {
 function cameraPose(m) {
   const c = portrait ? CAMERA.portrait : CAMERA.wide;
   const v = m === 'mix' ? (portrait ? CAMERA.mixPortrait : CAMERA.mix) : m === 'ending' ? (portrait ? CAMERA.endingPortrait : CAMERA.ending) : c;
-  const tanV = Math.tan(THREE.MathUtils.degToRad(13 / 2));
+  const tanV = Math.tan(THREE.MathUtils.degToRad(v.fov / 2));
   const dist = Math.max(v.halfH / tanV, v.halfW / (tanV * camera.aspect));
   const e = THREE.MathUtils.degToRad(v.elevation);
+  const az = THREE.MathUtils.degToRad(v.azimuth || 0);
   const t = v3(...v.target);
-  return { target: t, position: v3(t.x, t.y + Math.sin(e) * dist, t.z + Math.cos(e) * dist) };
+  const flat = Math.cos(e) * dist;
+  return { target: t, fov: v.fov, position: v3(t.x + Math.sin(az) * flat, t.y + Math.sin(e) * dist, t.z + Math.cos(az) * flat) };
 }
 const lookTarget = v3();
-function setCamera(pos, target) {
+function setCamera(pos, target, fov) {
+  camera.fov = fov;
   camera.position.copy(pos);
   lookTarget.copy(target);
   camera.lookAt(target);
@@ -72,7 +112,7 @@ function setCamera(pos, target) {
 }
 function placeCamera() {
   const p = cameraPose('add');
-  setCamera(p.position, p.target);
+  setCamera(p.position, p.target, p.fov);
 }
 function applyLayout() {
   const w = app.clientWidth;
@@ -95,6 +135,7 @@ function applyLayout() {
     it.home.set(slots[i][0], 0, slots[i][1]);
     if (!it.busy) it.node.position.copy(it.home);
     it.proxy.position.set(it.home.x, it.height / 2, it.home.z);
+    it.pool.position.set(it.home.x, 0.0002, it.home.z + 0.006);
     const p = v3(it.home.x, 0, it.home.z + it.radius).project(camera);
     const x = (p.x * 0.5 + 0.5) * w;
     const y = (-p.y * 0.5 + 0.5) * h;
@@ -103,7 +144,7 @@ function applyLayout() {
   });
   if (mode === 'mix' || mode === 'ending') {
     const p = cameraPose(mode);
-    setCamera(p.position, p.target);
+    setCamera(p.position, p.target, p.fov);
   }
 }
 
@@ -247,11 +288,11 @@ async function pour(it) {
   const seed = Math.floor(Math.random() * 1e9);
   let pinch = null;
   for (let n = 0; n < cfg.perPour; n++) {
-    await wait(glitter ? rand(0.012, 0.03) : rand(0.08, 0.13)); // pieces slide out on their own
+    await wait(glitter ? rand(0.008, 0.02) : rand(0.045, 0.085)); // pieces slide out on their own
     // rim lowest point, cup is tilted to the right
     node.updateMatrixWorld();
     rimWorld.set(CUP_R, CUP_H, rand(-0.008, 0.008)).applyMatrix4(node.matrixWorld);
-    const spot = findSpot(type, cx, cz, glitter ? cfg.spread : 0.017);
+    const spot = findSpot(type, cx, cz, glitter ? cfg.spread : 0.021);
     if (!spot) continue;
     const q = restRotation(type);
     landing.push(spot);
@@ -426,6 +467,7 @@ async function fallDroplet(it, from, target, surfaceY) {
   ripples.fire(m.position, 0.0075, 0.5);
   pigment.splat(target.x, target.z, type);
   pigment.remeasure();
+  pigment.setCounts(store.summary().pigments);
   scheduleSave();
   const hit = m.position.clone();
   await animate(0.4, (e) => {
@@ -474,6 +516,8 @@ function resetAll() {
     store.reset();
     Object.values(layers).forEach((l) => l.clear());
     mix.reset();
+    pigment.setCounts({});
+    pigment.setWork(0);
     clearSaved();
     if (mode !== 'add') await setMode('add');
   });
@@ -523,6 +567,7 @@ async function setMode(next) {
   const prev = mode;
   const from = camera.position.clone();
   const fromT = lookTarget.clone();
+  const fromFov = camera.fov;
   const to = cameraPose(next);
   mode = 'moving';
   syncButtons();
@@ -541,7 +586,11 @@ async function setMode(next) {
     t.lerpVectors(fromT, to.target, e);
     lookTarget.copy(t);
     camera.lookAt(t);
+    camera.fov = fromFov + (to.fov - fromFov) * e;
+    camera.updateProjectionMatrix();
     stage.rotation.y = spin * (1 - e);
+    const away = prev === 'add' ? e : next === 'add' ? 1 - e : null;
+    if (away !== null) pools.forEach((p) => { p.material.opacity = p.userData.opacity * (1 - away); });
     if (prev === 'add') retreat(e);
     if (next === 'add') retreat(1 - e);
   });
@@ -622,10 +671,68 @@ function readSaved(key) {
 }
 
 /* ---------- boot ---------- */
+// Light gathered under each object, standing in for the reflection on a black table.
+const pools = [];
+function makePoolTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const r = g.createRadialGradient(64, 64, 2, 64, 64, 64);
+  r.addColorStop(0, 'rgba(255,255,255,1)');
+  r.addColorStop(0.35, 'rgba(255,255,255,.38)');
+  r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r;
+  g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const poolTexture = makePoolTexture();
+function addPool(color, size, opacity, parent = scene) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: poolTexture, color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.scale.set(size, size * 1.35, 1);
+  m.renderOrder = -1;
+  m.userData.opacity = opacity;
+  parent.add(m);
+  pools.push(m);
+  return m;
+}
+const POOL_COLOR = { PEACH: 0xff7a96, MINT: 0x3fe0d0, LAVENDER: 0xa77cff, STAR: 0xffe6a8, HEART: 0xff9fc0, RIBBON: 0x9fd6f5, PEARL: 0xf2ead8, SEQUIN: 0xbcd0ff, AURORA: 0xdcd0ff, GLITTER: 0xd6dcea };
+
+function dressObjects(root) {
+  const glass = [];
+  root.traverse((o) => {
+    if (o.isMesh && /^MAT_GLASS_CLEAR/.test(o.material?.name)) glass.push(o);
+    if (o.isMesh && /^MAT_GLASS_PIPETTE/.test(o.material?.name) && o.visible) glass.push(o);
+    if (o.isMesh && /^MAT_PIGMENT_/.test(o.material?.name)) {
+      // liquid holding a little light: readable on black, not self-lit neon
+      const m = o.material;
+      m.opacity = 0.6;
+      m.roughness = 0.03;
+      m.emissive.copy(m.color);
+      m.emissiveIntensity = 0.32;
+    }
+  });
+  root.traverse((o) => {
+    if (o.isMesh && o.material?.name === 'MAT_METAL_SILVER') { o.material.roughness = 0.42; o.material.envMap = studio; o.material.envMapIntensity = 2.4; }
+    if (o.isMesh && o.material?.name === 'MAT_RUBBER_IVORY') { o.material.envMap = studio; o.material.envMapIntensity = 1.8; }
+  });
+  for (const m of new Set(glass.map((g) => g.material))) {
+    m.roughness = 0.015;
+    m.specularIntensity = 1;
+    m.envMapIntensity = 1;
+  }
+  for (const g of glass) {
+    const pipette = /PIPETTE/.test(g.material.name);
+    edgeLight(g, { strength: pipette ? 0.3 : g.name.startsWith('SERUM') ? 0.62 : 0.5, power: pipette ? 2.6 : 3.2 });
+  }
+}
+
 function handUI() {
   const video = $('camvideo');
   const dots = $('camdots');
-  const pointerEl = $('handpointer');
+  const pointers = { hand0: $('handpointer'), hand1: $('handpointer2') };
   const box = $('cam');
   const g = dots.getContext('2d');
   let previewOn = true;
@@ -644,21 +751,25 @@ function handUI() {
     status: (t) => { $('handmsg').textContent = t; $('handmsg').hidden = !t; },
     showPreview: () => setTimeout(refresh),
     previewVisible: () => previewOn,
-    pointer(p) {
+    pointer(id, p) {
+      const pointerEl = pointers[id];
       if (!p) { pointerEl.hidden = true; return; }
       pointerEl.hidden = false;
       pointerEl.classList.toggle('pinching', p.pinching);
       pointerEl.style.transform = `translate(${(p.x * 0.5 + 0.5) * app.clientWidth}px, ${(-p.y * 0.5 + 0.5) * app.clientHeight}px)`;
     },
-    drawHand(lm) {
+    drawHands(hands) {
       g.clearRect(0, 0, dots.width, dots.height);
-      if (!lm || !previewOn) return;
-      g.fillStyle = '#ffffff';
-      for (const i of [4, 8]) {
-        g.beginPath();
-        g.arc((1 - lm[i].x) * dots.width, lm[i].y * dots.height, 5, 0, 7);
-        g.fill();
-      }
+      if (!previewOn) return;
+      $('camcount').textContent = hands.length ? `손 ${hands.length}개 인식` : '손을 보여 주세요';
+      hands.forEach((lm, n) => {
+        g.fillStyle = n ? '#9fd6f5' : '#ffb6cc';
+        for (const i of [4, 8]) {
+          g.beginPath();
+          g.arc((1 - lm[i].x) * dots.width, lm[i].y * dots.height, 5, 0, 7);
+          g.fill();
+        }
+      });
     },
   };
 }
@@ -673,7 +784,7 @@ function setup(gltf) {
   scene.add(stage);
   stage.add(slime);
   slime.getObjectByName('SLIME_BUBBLES').visible = false;
-  applyGel(slime);
+  applyGel(slime, studio);
   volume = buildVolume(slime.geometry);
   inside = new THREE.Group();
   inside.name = 'MIX_CONTENTS';
@@ -683,6 +794,7 @@ function setup(gltf) {
   root.traverse((o) => {
     if (o.material && /^MAT_GLASS/.test(o.material.name)) o.material.depthWrite = false; // serum liquid is alpha blended
   });
+  dressObjects(root);
 
   const labelBox = document.getElementById('labels');
   const proxyMat = new THREE.MeshBasicMaterial();
@@ -704,7 +816,8 @@ function setup(gltf) {
     label.addEventListener('pointerenter', () => label.classList.add('is-hover'));
     label.addEventListener('pointerleave', () => label.classList.remove('is-hover'));
     labelBox.append(label);
-    const it = { def, node, home: v3(), proxy, label, busy: false, height, radius };
+    const pool = addPool(POOL_COLOR[def.id], isPart ? 0.066 : 0.07, isPart ? 0.2 : 0.38);
+    const it = { def, node, home: v3(), proxy, label, busy: false, height, radius, pool };
     if (!isPart) {
       it.dropper = node.getObjectByName(`DROPPER_${def.id}`);
       it.dropperLocal = it.dropper.position.clone();
@@ -725,7 +838,7 @@ function setup(gltf) {
   partEngine = new PartEngine(layers, volume, PART);
   mix = new MixEngine({
     deform, pigment, parts: partEngine, volume,
-    onCommit: () => { store.touch(); scheduleSave(); },
+    onCommit: () => { store.setWork(mix.work); scheduleSave(); },
   });
   attachPointer({ canvas, camera, engine: mix, enabled: () => mode === 'mix' });
   hand = new HandInput({ camera, engine: mix, enabled: () => mode === 'mix', ui: handUI() });
@@ -737,12 +850,16 @@ function setup(gltf) {
   const restored = field && pigment.restore(field);
   if (!restored) saved.pigments.forEach((r) => pigment.splat(r.position[0], r.position[2], r.type));
   pigment.remeasure();
+  mix.work = store.snapshot().work || 0;
+  pigment.work = mix.work;
+  pigment.setCounts(store.summary().pigments);
+  addPool(0xd8d4ff, 0.15, 0.14);
   const plastic = readSaved(PLASTIC_KEY);
   if (plastic) { deform.restore(plastic); pigment.bend(deform); }
   syncButtons();
   window.PHILIA = {
     ready: true, scene, camera, items, select, finishDropper, resetAll,
-    state: store.snapshot, summary: store.summary, volume, layers, setMode, makeName, get hand() { return hand; }, get mode() { return mode; }, get mix() { return mix; },
+    state: store.snapshot, summary: store.summary, volume, layers, setMode, makeName, tint, get hand() { return hand; }, get mode() { return mode; }, get mix() { return mix; },
     get pigment() { return pigment; }, get parts() { return partEngine; }, get deform() { return deform; },
     THREE, slime, idle: () => !working && !queue.length && !pending.size,
     debug: () => ({ working, queue: queue.length, pending: pending.size, active: [...items.values()].filter((i) => i.busy).map((i) => i.def.id), dropper: !!dropMode.it }),

@@ -8,26 +8,29 @@ const DRAG_START = 0.007;
 export class MixEngine {
   constructor({ deform, pigment, parts, volume, onCommit }) {
     Object.assign(this, { deform, pigment, parts, volume, onCommit });
-    this.g = null;
+    this.contacts = new Map();   // one entry per finger, pointer or hand
     this.quiet = 0;
     this.heartClock = 0;
+    this.work = 0;               // how much the gel has been worked, drives the overall tint
+    this.hazeClock = 0;
   }
 
   /* ---------- common commands ---------- */
-  press(pt) {
-    const r = Math.hypot(pt.x, pt.z);
+  press(pt, id = 'pointer') {
+    if (this.contacts.has(id)) return true;
+    const r = Math.hypot(pt.x, pt.z) || 1e-6;
     const rim = this.volume.rim(pt.x, pt.z);
     if (r > rim * 1.14) return false;
-    const inner = pt.x * Math.min(1, (rim * 0.94) / r || 1);
-    const innerZ = pt.z * Math.min(1, (rim * 0.94) / r || 1);
+    const inner = pt.x * Math.min(1, (rim * 0.94) / r);
+    const innerZ = pt.z * Math.min(1, (rim * 0.94) / r);
     const edge = r > rim * 0.64;
     const d = this.deform.add('press', { x: inner, z: innerZ });
     d.a.goal = 0.008;
-    this.g = { kind: 'press', edge, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0, centre: { x: inner, z: innerZ } };
+    this.contacts.set(id, { kind: 'press', edge, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0 });
     return true;
   }
-  drag(pt) {
-    const g = this.g;
+  drag(pt, id = 'pointer') {
+    const g = this.contacts.get(id);
     if (!g) return;
     g.now = { x: pt.x, z: pt.z };
     const tx = pt.x - g.start.x;
@@ -36,19 +39,19 @@ export class MixEngine {
     if (g.kind === 'press' && g.edge && len > DRAG_START) {
       const r = Math.hypot(g.start.x, g.start.z) || 1;
       const out = (tx * g.start.x + tz * g.start.z) / r;
-      if (out >= 0) this.stretch(); else this.fold();
+      if (out >= 0) this.stretch(id); else this.fold(id);
     } else if (g.kind === 'press') {
       g.d.x = pt.x; g.d.z = pt.z;
     }
   }
-  stretch() {
-    const g = this.g;
+  stretch(id = 'pointer') {
+    const g = this.contacts.get(id);
     g.d.held = false; g.d.a.goal = 0;
     const d = this.deform.add('stretch', { x: g.start.x, z: g.start.z });
-    Object.assign(g, { kind: 'stretch', d });
+    Object.assign(g, { kind: 'stretch', d, seed: Math.random() * 40 });
   }
-  fold() {
-    const g = this.g;
+  fold(id = 'pointer') {
+    const g = this.contacts.get(id);
     g.d.held = false; g.d.a.goal = 0;
     // The flap is whatever lies opposite the drag, so all directions work the same.
     const tx = g.now.x - g.start.x;
@@ -59,19 +62,20 @@ export class MixEngine {
     const d = this.deform.add('fold', { nx: n.x, nz: n.z, grab });
     Object.assign(g, { kind: 'fold', d, n, grab, seed: Math.random() * 40 });
   }
-  release() {
-    const g = this.g;
+  release(id = 'pointer') {
+    const g = this.contacts.get(id);
     if (!g) return;
-    this.g = null;
+    this.contacts.delete(id);
     const folded = g.kind === 'fold' && g.d.a.v > 0.008;
     if (folded) {
-      // Bake where the fold put things, then let only the shell unroll.
+      // Bake where this fold put things, then let only the shell unroll.
       this.parts.landFold(this.deform, g.d);
-      this.pigment.bakeSheet();
+      this.pigment.bakeSheet(g.d);
       g.d.detached = true;
       this.pigment.bend(this.deform);
       const s0 = g.d.grab - g.d.a.v * FOLD_HINGE;
-      this.comb = { x: g.n.x * s0, z: g.n.z * s0, left: 8, amount: 0.00028, seed: g.seed };
+      this.comb = { x: g.n.x * s0, z: g.n.z * s0, tx: -g.n.z, tz: g.n.x, left: 12, seed: g.seed };
+      this.work += 0.5;
     }
     if (g.kind !== 'fold') this.deform.remember(g.d);
     g.d.held = false;
@@ -83,25 +87,30 @@ export class MixEngine {
 
   /* ---------- per frame ---------- */
   step(dt) {
-    const g = this.g;
-    if (g) this.applyGesture(g, dt);
-    else if (this.comb) this.runComb();
+    for (const g of this.contacts.values()) this.applyGesture(g, dt);
+    if (this.comb) this.runComb();
     const live = this.deform.active;
     if (live) { this.deform.step(dt); this.pigment.bend(this.deform); }
     this.parts.step(dt, this.deform);
-    if (!live && !g && this.quiet > 0) {
+    if (this.contacts.size && ++this.hazeClock % 6 === 0) this.pigment.setWork(this.work);
+    if (!live && !this.contacts.size && !this.comb && this.quiet > 0) {
       this.quiet = 0;
       this.deform.write();
       this.pigment.bend(this.deform);
       this.pigment.conserve();
+      this.pigment.setWork(this.work);
       this.parts.commit();
       this.onCommit();
     }
   }
-  // Layers that just met pull into each other along the fold.
+  // Layers that just met drag through each other along the fold line, like a comb through marbling.
   runComb() {
     const c = this.comb;
-    this.pigment.advect({ curl: { x: c.x, z: c.z, amount: c.amount }, seed: c.seed });
+    this.pigment.advect({
+      smear: { x: c.x, z: c.z, dx: c.tx * 0.0001, dz: c.tz * 0.0001, size: 0.05, comb: 3.2 },
+      curl: { x: c.x, z: c.z, amount: 0.00028 },
+      seed: c.seed,
+    });
     if (--c.left <= 0) this.comb = null;
   }
   applyGesture(g, dt) {
@@ -110,6 +119,7 @@ export class MixEngine {
     const move = Math.hypot(dx, dz);
     g.last = { ...g.now };
     g.held += dt;
+    this.work += move * 9;
     if (g.kind === 'press') this.applyPress(g, dt, dx, dz, move);
     else if (g.kind === 'stretch') this.applyStretch(g, dx, dz, move);
     else this.applyFold(g);
@@ -117,6 +127,7 @@ export class MixEngine {
   applyPress(g, dt, dx, dz, move) {
     const d = g.d;
     d.a.goal = Math.min(0.0145, 0.008 + g.held * 0.009);
+    this.work += dt * 0.12;
     const c = { x: d.x, z: d.z };
     const pushing = Math.min(1, 0.25 + g.held) * (1 + move * 300);
     this.parts.push((p) => {
@@ -129,11 +140,11 @@ export class MixEngine {
     });
     this.parts.separate();
     this.pigment.advect({
-      press: { x: c.x, z: c.z, amount: 0.00015 * Math.min(1, 0.3 + g.held) * (g.held < 2.5 ? 1 : 0.15) },
-      smear: move > 0 ? { x: c.x, z: c.z, dx: dx * 0.8, dz: dz * 0.8, size: 0.016 } : null,
+      press: { x: c.x, z: c.z, amount: 0.00017 * Math.min(1, 0.3 + g.held) * (g.held < 2.5 ? 1 : 0.15), petals: 7 },
+      smear: move > 0 ? { x: c.x, z: c.z, dx: dx * 0.8, dz: dz * 0.8, size: 0.016, comb: 1.2 } : null,
       curl: move > 0 ? { x: c.x, z: c.z, amount: move * 0.05 } : null,
       swirls: this.ribbonSwirls(c, move),
-      diffuse: 0.006,
+      diffuse: 0.004,
     });
     this.hearts(c);
   }
@@ -156,10 +167,11 @@ export class MixEngine {
     this.parts.separate();
     if (move > 0) {
       this.pigment.advect({
-        smear: { x: sx * 0.72, z: sz * 0.72, dx: dx * 0.34, dz: dz * 0.34, size: reach },
-        curl: { x: sx * 0.6, z: sz * 0.6, amount: move * 0.035 },
+        smear: { x: sx * 0.72, z: sz * 0.72, dx: dx * 0.42, dz: dz * 0.42, size: reach, comb: 1.6 },
+        curl: { x: sx * 0.6, z: sz * 0.6, amount: move * 0.03 },
+        seed: g.seed,
         swirls: this.ribbonSwirls({ x: sx, z: sz }, move),
-        diffuse: 0.004,
+        diffuse: 0.002,
       });
       this.hearts({ x: sx, z: sz });
     }
@@ -184,9 +196,9 @@ export class MixEngine {
     const near = this.parts.near(new THREE.Vector3(c.x, 0.012, c.z), 0.03).filter((p) => p.type === 'HEART').slice(0, 2);
     for (const p of near) this.pigment.splat(p.base.x, p.base.z, 'PEACH', 0.05, 0.0042);
   }
-  get busy() { return !!this.g || this.deform.active || !!this.comb; }
+  get busy() { return this.contacts.size > 0 || this.deform.active || !!this.comb; }
   reset() {
-    this.g = null; this.comb = null; this.quiet = 0;
+    this.contacts.clear(); this.comb = null; this.quiet = 0; this.work = 0;
     this.deform.reset();
     this.pigment.clear();
     this.pigment.mass = [0, 0, 0];

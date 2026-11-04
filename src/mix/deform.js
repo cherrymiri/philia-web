@@ -117,7 +117,7 @@ export class DeformEngine {
     this.neighbours = sets.map((s) => [...s]);
   }
   add(type, params) {
-    if (this.list.length >= 4) this.list.shift();
+    if (this.list.length >= 6) this.list.splice(this.list.findIndex((d) => !d.held), 1);
     const d = new Deformer(type, params);
     this.list.push(d);
     return d;
