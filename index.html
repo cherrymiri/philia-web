@@ -1,48 +1,48 @@
 <!doctype html>
 <html lang="ko">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#000000" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>PHILIA — 친구의 사랑</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&family=Noto+Sans+KR:wght@300;400&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/src/style.css" />
-  </head>
-  <body>
-    <canvas id="scene"></canvas>
-
-    <div id="ui">
-      <header class="title">
-        <h1>PHILIA</h1>
-        <p>친구의 사랑</p>
-      </header>
-
-      <div class="sync" aria-label="SYNC">
-        <span class="sync-label">SYNC</span>
-        <div class="sync-bar"><div class="sync-fill"></div></div>
-        <span class="sync-pct">0%</span>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>PHILIA 재료 담기</title>
+</head>
+<body>
+<div id="app">
+  <canvas id="c" aria-label="투명 말랑이와 재료"></canvas>
+  <div id="labels"></div>
+  <button id="reset" type="button">처음부터 다시</button>
+  <div id="guide" hidden><b>이제 직접 섞어보세요.</b><span>재료는 언제든 더 추가할 수 있어요.</span></div>
+  <button id="mixbtn" type="button">말랑이 섞기</button>
+  <div id="mixbar" hidden>
+    <button id="addbtn" type="button">재료 더 넣기</button>
+    <button id="donebtn" type="button">완성하기</button>
+    <button id="handbtn" type="button">손 인식 켜기</button>
+  </div>
+  <div id="cam" hidden>
+    <div id="campreview"><video id="camvideo" muted playsinline></video><canvas id="camdots" width="320" height="240"></canvas></div>
+    <div id="camctl"><button id="camtoggle" type="button">카메라 숨기기</button><button id="handoff" type="button">손 인식 끄기</button></div>
+  </div>
+  <p id="handmsg" hidden role="status"></p>
+  <div id="handpointer" hidden></div>
+  <div id="ending" hidden>
+    <p id="endtitle">PHILIA</p>
+    <div id="endtext">
+      <p id="endhead">당신의 우정 말랑이</p>
+      <h1 id="endname"></h1>
+      <p id="endused"></p>
+      <div id="endbtns">
+        <button id="savecard" type="button">내 말랑이 저장하기</button>
+        <button id="saveobject" type="button">말랑이만 저장</button>
+        <button id="again" type="button">다시 만들기</button>
       </div>
-
-      <p class="hint">발자국이 빛의 선에 닿을 때 왼발·오른발을 눌러 함께 걸어보세요.</p>
-      <p class="prompt">친구에게 발을 맞춰주세요.</p>
-      <div class="judge"></div>
-
-      <div class="controls">
-        <button class="foot" id="btn-left" data-group="0" type="button">왼발</button>
-        <button class="foot" id="btn-right" data-group="1" type="button">오른발</button>
-      </div>
-
-      <div class="ending" aria-hidden="true">
-        <h2>WE'RE BESTIES!</h2>
-        <button id="btn-again" type="button">다시 걷기</button>
-      </div>
-
-      <div class="loader"><span></span></div>
+      <p id="savemsg" role="status"></p>
     </div>
-
-    <script type="module" src="/src/main.js"></script>
-  </body>
+  </div>
+  <div id="loaderror" hidden>모델을 불러오지 못했습니다. 새로고침해 주세요.</div>
+  <div id="dropbar" hidden>
+    <span id="dropmsg">말랑이를 눌러 한 방울씩 떨어뜨리세요</span>
+    <button id="dropdone" type="button">넣기 완료</button>
+  </div>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
 </html>

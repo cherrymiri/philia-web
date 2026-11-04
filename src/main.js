@@ -1,583 +1,792 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { createGlass } from './glass.js';
-import { createFloor } from './floor.js';
-import { createFootprints } from './footprints.js';
-import { createNotes, LANE_X } from './notes.js';
-import { Duet, LEAD } from './walk.js';
-import { Rhythm } from './rhythm.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import './style.css';
+import { INGREDIENTS, PART, PIGMENT, BLOB, POUR, CAMERA, MAX_VISIBLE } from './config.js';
+import { DeformEngine } from './mix/deform.js';
+import { PigmentEngine } from './mix/pigment.js';
+import { PartEngine } from './mix/parts.js';
+import { MixEngine } from './mix/engine.js';
+import { attachPointer } from './input.js';
+import { HandInput } from './hand.js';
+import { makeName } from './naming.js';
+import { renderStill, composeCard, saveCanvas } from './save.js';
+import * as store from './state.js';
+import { animate, wait, ease, stepTweens } from './tween.js';
+import { applyGel, buildVolume } from './gel.js';
+import { PartLayer, Ripples } from './layers.js';
 
-// ---------------------------------------------------------------------------
-// 색
-// ---------------------------------------------------------------------------
-const BUTTER = new THREE.Color('#ffd27a');
-const PEACH = new THREE.Color('#ffa88c');
-const WARM_WHITE = new THREE.Color('#fff0e0');
-
-const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const lerp = (a, b, t) => a + (b - a) * t;
-const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
-
-/** SYNC(0~100) → 색 혼합. 0%: 화이트, 30%: 아주 은은, 60%: 점점 선명, 100%: 완성 */
-function colorMix(sync) {
-  const t = clamp(sync / 100, 0, 1);
-  const knots = [[0, 0], [0.3, 0.16], [0.6, 0.5], [1, 1]];
-  for (let i = 1; i < knots.length; i++) {
-    const [x0, y0] = knots[i - 1], [x1, y1] = knots[i];
-    if (t <= x1) { const k = (t - x0) / (x1 - x0); return lerp(y0, y1, k * k * (3 - 2 * k)); }
-  }
-  return 1;
-}
-
-// ---------------------------------------------------------------------------
-// 렌더러 / 품질
-// ---------------------------------------------------------------------------
-const isMobile = matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 600;
-const params = new URLSearchParams(location.search);
-const LITE = params.has('lite');          // 저사양 확인용: 블룸 끔
-let NORENDER = params.has('norender');    // 자동 테스트용: 그리기만 생략 (게임 로직은 그대로)
-const canvas = document.getElementById('scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: !isMobile, powerPreference: 'high-performance' });
-let pixelRatio = Math.min(devicePixelRatio, isMobile ? 1.5 : 2);
-renderer.setPixelRatio(pixelRatio);
-renderer.setSize(innerWidth, innerHeight);
-renderer.setClearColor(0x000000, 1);
+const app = document.getElementById('app');
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.toneMapping = THREE.NeutralToneMapping;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
-const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.02, 60);
-const envMap = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.5;
+const key = new THREE.DirectionalLight(0xffffff, 0.9);
+key.position.set(0.05, 0.4, 0.2);
+scene.add(key);
+const camera = new THREE.PerspectiveCamera(13, 1, 0.02, 8);
 
-scene.add(new THREE.HemisphereLight(0xfff2e4, 0x120a08, 0.35));
-const rimL = new THREE.DirectionalLight(0xffd9a0, 1.4); rimL.position.set(-1.2, 1.1, -1.6); scene.add(rimL);
-const rimR = new THREE.DirectionalLight(0xffb8a0, 1.4); rimR.position.set(1.2, 1.1, -1.6); scene.add(rimR);
-const key = new THREE.DirectionalLight(0xfff4ea, 0.5); key.position.set(0, 2, 1.5); scene.add(key);
+const items = new Map();       // id -> { def, node, home, proxy, label, busy }
+const layers = {};             // part type -> PartLayer
+const v3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+const rand = (a, b) => a + Math.random() * (b - a);
+let slime, volume, inside, ripples, portrait = false;
+let deform, pigment, partEngine, mix;
+let mode = 'add';              // add | mix | ending | moving
+let stage, hand;
+let swayTime = 0;
+const pending = new Set();     // falling parts/drops still animating
 
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), isMobile ? 0.55 : 0.7, 0.5, 0.5);
-composer.addPass(bloom);
-composer.addPass(new OutputPass());
-let useBloom = !LITE;
-if (isMobile) bloom.resolution.set(innerWidth / 2, innerHeight / 2);
-
-// ---------------------------------------------------------------------------
-// 바닥 · 걸어온 발자국 · 리듬 노트
-// ---------------------------------------------------------------------------
-const floor = createFloor();
-scene.add(floor.mesh);
-const prints = createFootprints();
-scene.add(prints.mesh);
-const notes = createNotes();
-scene.add(notes.mesh, notes.line);
-
-// ---------------------------------------------------------------------------
-// UI
-// ---------------------------------------------------------------------------
-const $ = (s) => document.querySelector(s);
-const ui = {
-  hint: $('.hint'), prompt: $('.prompt'), controls: $('.controls'), fill: $('.sync-fill'), pct: $('.sync-pct'),
-  ending: $('.ending'), again: $('#btn-again'), loader: $('.loader'), loaderBar: $('.loader span'),
-  btn: [$('#btn-left'), $('#btn-right')], judge: $('.judge'),
-};
-
-// ---------------------------------------------------------------------------
-// 상태
-// ---------------------------------------------------------------------------
-const state = {
-  phase: 'loading',      // loading → ready → play → finishing → ending
-  shownSync: 0,
-  endT: -1, finalStepped: false,
-  textShown: false, againShown: false,
-  camZ: 0, lineZ: -0.32, lineFade: 1,
-  playStart: -1, endTime: -1,
-};
-
-let duet = null, band = null, mats = null;
-const lastLand = [null, null];
-const clock = () => performance.now() / 1000;
-const rhythm = new Rhythm({ onJudge, onStray, onEvent, onIdle });
-
-// ---------------------------------------------------------------------------
-// GLB 로드
-// ---------------------------------------------------------------------------
-new GLTFLoader().load(
-  `${import.meta.env.BASE_URL}models/PHILIA_model_v1.glb`,
-  (gltf) => setup(gltf),
-  (e) => { if (e.total) ui.loaderBar.style.width = `${(e.loaded / e.total) * 100}%`; },
-  (err) => { console.error(err); ui.hint.textContent = '모델을 불러오지 못했습니다.'; },
-);
-
-function setup(gltf) {
-  const root = gltf.scene.getObjectByName('PHILIA_Root') || gltf.scene;
-  scene.add(gltf.scene);
-  const get = (n) => {
-    const o = root.getObjectByName(n);
-    if (!o) throw new Error(`GLB 안에 ${n} 이(가) 없습니다`);
-    o.matrixAutoUpdate = false;
-    o.updateMatrix();
-    return o;
-  };
-
-  // 뒤에서 앞(-Z)을 보는 카메라 기준 왼쪽부터: Shoe_B_L · Shoe_B_R · Shoe_A_L · Shoe_A_R
-  // 왼쪽 사람(관람객) = 버터 옐로우, 오른쪽 사람(친구) = 피치 핑크
-  mats = {
-    left: createGlass({ envMap }), right: createGlass({ envMap }), band: createGlass({ envMap, gradient: true, rimStrength: 1.5 }),
-    leftR: createGlass({ envMap, opacity: 0.04, rimStrength: 0.45, reflection: true }),
-    rightR: createGlass({ envMap, opacity: 0.04, rimStrength: 0.45, reflection: true }),
-    bandR: createGlass({ envMap, opacity: 0.04, rimStrength: 0.4, gradient: true, reflection: true }),
-  };
-  for (const k of ['left', 'leftR']) { const u = mats[k].userData.uniforms; u.uTintA.value.copy(BUTTER); u.uTintB.value.copy(BUTTER); }
-  for (const k of ['right', 'rightR']) { const u = mats[k].userData.uniforms; u.uTintA.value.copy(PEACH); u.uTintB.value.copy(PEACH); }
-  for (const k of ['band', 'bandR']) { const u = mats[k].userData.uniforms; u.uTintA.value.copy(BUTTER); u.uTintB.value.copy(PEACH); }
-
-  // 그룹 0 = 왼발 버튼(바깥 발 2개), 그룹 1 = 오른발 버튼(묶인 가운데 발 2개)
-  const defs = [
-    { name: 'Shoe_B_L', group: 0, viewer: true, person: 'left' },
-    { name: 'Shoe_B_R', group: 1, viewer: true, person: 'left' },
-    { name: 'Shoe_A_L', group: 1, viewer: false, person: 'right' },
-    { name: 'Shoe_A_R', group: 0, viewer: false, person: 'right' },
+/* ---------- layout ---------- */
+function wideSlots() {
+  return [
+    [-0.205, 0.045], [-0.163, -0.012], [-0.128, -0.078],                  // serums
+    [-0.076, -0.104], [-0.026, -0.11], [0.026, -0.11], [0.076, -0.104],    // back row
+    [0.128, -0.078], [0.166, -0.012], [0.205, 0.045],                     // right side
   ];
-  const shoes = defs.map((d) => {
-    const obj = get(d.name);
-    obj.material = mats[d.person];
-    obj.renderOrder = 4;
-    return { ...d, obj, foot: obj.userData.foot || d.name.slice(-1) };
+}
+function portraitSlots() {
+  const xs = [-0.098, -0.049, 0, 0.049, 0.098];
+  return [...xs.map((x) => [x, 0.118]), ...xs.map((x) => [x, 0.222])]; // serums first, so they sit nearest the gel
+}
+function cameraPose(m) {
+  const c = portrait ? CAMERA.portrait : CAMERA.wide;
+  const v = m === 'mix' ? (portrait ? CAMERA.mixPortrait : CAMERA.mix) : m === 'ending' ? (portrait ? CAMERA.endingPortrait : CAMERA.ending) : c;
+  const tanV = Math.tan(THREE.MathUtils.degToRad(13 / 2));
+  const dist = Math.max(v.halfH / tanV, v.halfW / (tanV * camera.aspect));
+  const e = THREE.MathUtils.degToRad(v.elevation);
+  const t = v3(...v.target);
+  return { target: t, position: v3(t.x, t.y + Math.sin(e) * dist, t.z + Math.cos(e) * dist) };
+}
+const lookTarget = v3();
+function setCamera(pos, target) {
+  camera.position.copy(pos);
+  lookTarget.copy(target);
+  camera.lookAt(target);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+}
+function placeCamera() {
+  const p = cameraPose('add');
+  setCamera(p.position, p.target);
+}
+function applyLayout() {
+  const w = app.clientWidth;
+  const h = app.clientHeight;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, w < 700 ? 1.5 : 2));
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  portrait = w / h < 0.9;
+  app.classList.toggle('portrait', portrait);
+  placeCamera();             // labels are always measured from the add view
+  const slots = portrait ? portraitSlots() : wideSlots();
+  const pxPerM = h / (2 * camera.position.distanceTo(v3(...(portrait ? CAMERA.portrait : CAMERA.wide).target)) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+  const labelW = portrait ? Math.floor((w - 16) / 5) - 2 : Math.min(150, Math.max(104, pxPerM * 0.048));
+  app.style.setProperty('--w', `${labelW}px`);
+  app.style.setProperty('--name', portrait ? '11.5px' : '15px');
+  app.style.setProperty('--mean', portrait ? '10.5px' : '12.5px');
+  INGREDIENTS.forEach((def, i) => {
+    const it = items.get(def.id);
+    if (!it) return;
+    it.home.set(slots[i][0], 0, slots[i][1]);
+    if (!it.busy) it.node.position.copy(it.home);
+    it.proxy.position.set(it.home.x, it.height / 2, it.home.z);
+    const p = v3(it.home.x, 0, it.home.z + it.radius).project(camera);
+    const x = (p.x * 0.5 + 0.5) * w;
+    const y = (-p.y * 0.5 + 0.5) * h;
+    const lx = THREE.MathUtils.clamp(x - labelW / 2, 4, w - labelW - 4);
+    it.label.style.transform = `translate(${lx}px, ${y + 3}px)`;
   });
-
-  const mirror = new THREE.Group();
-  mirror.scale.y = -1;
-  scene.add(mirror);
-  for (const s of shoes) {
-    const r = new THREE.Mesh(s.obj.geometry, mats[s.person + 'R']);
-    r.matrixAutoUpdate = false;
-    mirror.add(r);
-    s.reflection = r;
+  if (mode === 'mix' || mode === 'ending') {
+    const p = cameraPose(mode);
+    setCamera(p.position, p.target);
   }
-
-  band = setupBand(get('Band_Link'), shoes[1], shoes[2]);
-  const bandR = new THREE.Mesh(band.mesh.geometry, mats.bandR);
-  bandR.matrixAutoUpdate = false;
-  mirror.add(bandR);
-  for (const n of ['Anchor_A_L', 'Anchor_B_R']) { const a = root.getObjectByName(n); if (a) a.visible = false; }
-
-  duet = new Duet(shoes, onLand);
-  duet.update(clock(), 0);
-  band.update(0, 0);
-  syncReflections();
-
-  window.__philia = { duet, rhythm, state, prints, floor, shoes, band, scene, notes, setRender: (v) => { NORENDER = !v; } }; // 테스트용
-
-  ui.loader.classList.add('done');
-  state.phase = 'ready';
-  state.camZ = duet.centerZ();
-  bindInput();
 }
 
-// ---------------------------------------------------------------------------
-// 연결 밴드: 두 신발을 따라 휘어지고, 어긋나면 팽팽해짐
-// ---------------------------------------------------------------------------
-function setupBand(mesh, shoeL, shoeR) {
-  mesh.material = mats.band;
-  mesh.renderOrder = 5;
-  mesh.matrixAutoUpdate = false;
-  mesh.updateMatrix();
-  const geo = mesh.geometry;
-  const pos = geo.attributes.position;
-  const n = pos.count;
-  const rest = Float32Array.from(pos.array);
-  geo.setAttribute('aRestX', new THREE.BufferAttribute(Float32Array.from({ length: n }, (_, i) => rest[i * 3]), 1));
-  pos.setUsage(THREE.DynamicDrawUsage);
-
-  const invL = shoeL.obj.matrix.clone().invert();
-  const invR = shoeR.obj.matrix.clone().invert();
-  const localL = new Float32Array(n * 3), localR = new Float32Array(n * 3), w = new Float32Array(n), arc = new Float32Array(n);
-  const v = new THREE.Vector3();
-  let minX = Infinity, maxX = -Infinity;
-  for (let i = 0; i < n; i++) { minX = Math.min(minX, rest[i * 3]); maxX = Math.max(maxX, rest[i * 3]); }
-  for (let i = 0; i < n; i++) {
-    v.fromArray(rest, i * 3).applyMatrix4(invL); v.toArray(localL, i * 3);
-    v.fromArray(rest, i * 3).applyMatrix4(invR); v.toArray(localR, i * 3);
-    const t = (rest[i * 3] - minX) / (maxX - minX);
-    w[i] = t * t * (3 - 2 * t);
-    arc[i] = Math.sin(Math.PI * t);
-  }
-  const lag = new THREE.Vector3(), lagVel = new THREE.Vector3(), target = new THREE.Vector3(), f = new THREE.Vector3();
-  const pL = new THREE.Vector3(), pR = new THREE.Vector3();
-  let snap = 0;
-
-  function update(dt, tension) {
-    const mL = shoeL.obj.matrix, mR = shoeR.obj.matrix;
-    target.set(0, (shoeL.obj.position.y + shoeR.obj.position.y) * 0.5, (shoeL.obj.position.z + shoeR.obj.position.z) * 0.5);
-    if (dt > 0) {
-      const k = 120, d = 14, h = Math.min(dt, 0.05);
-      f.copy(target).sub(lag).multiplyScalar(k).addScaledVector(lagVel, -d);
-      lagVel.addScaledVector(f, h);
-      lag.addScaledVector(lagVel, h);
-    } else { lag.copy(target); lagVel.set(0, 0, 0); }
-    // 팽팽해지는 순간 짧게 '탱' 떨림
-    snap = Math.max(snap * 0.9, tension);
-    const oy = lag.y - target.y, oz = lag.z - target.z;
-    const dz = Math.abs(shoeR.obj.position.z - shoeL.obj.position.z);
-    const taut = clamp(Math.max(dz / 0.06, tension), 0, 1);
-    const twang = Math.sin((performance.now() / 1000) * 38) * 0.004 * snap;
-    const a = pos.array;
-    for (let i = 0; i < n; i++) {
-      pL.fromArray(localL, i * 3).applyMatrix4(mL);
-      pR.fromArray(localR, i * 3).applyMatrix4(mR);
-      pL.lerp(pR, w[i]);
-      // 팽팽할수록 가운데 처짐이 펴지며 살짝 들림
-      a[i * 3] = pL.x;
-      a[i * 3 + 1] = pL.y + arc[i] * (oy * 0.8 + 0.008 * taut + twang);
-      a[i * 3 + 2] = pL.z + arc[i] * (oz * 0.8);
+/* ---------- placement inside the gel ---------- */
+const landing = [];  // spots claimed by pieces still in the air
+function findSpot(type, cx, cz, spread) {
+  const cfg = PART[type];
+  const r = cfg.radius * (type === 'GLITTER' ? 1 : 1);
+  for (const slack of [1, 0.8, 0.6, 0.4, 0.2]) {
+    for (let t = 0; t < 40; t++) {
+      const a = rand(0, Math.PI * 2);
+      const q = spread * Math.sqrt(Math.random());
+      let x = cx + q * Math.cos(a);
+      let z = cz + q * Math.sin(a);
+      if (t > 20) { const b = rand(0, Math.PI * 2); const c = 0.044 * Math.sqrt(Math.random()); x = c * Math.cos(b); z = c * Math.sin(b); }
+      if (!volume.fits(x, z, r)) continue;
+      const s = volume.at(x, z);
+      const lo = s.bottom + r + 0.0012;
+      const hi = s.top - r - 0.0012;
+      if (hi <= lo) continue;
+      const y = lo + (hi - lo) * Math.random() ** 1.3 * 0.9;
+      const p = v3(x, y, z);
+      const clearOf = (o) => o.type === 'GLITTER' || o.base.distanceTo(p) > (o.cfg.radius + r) * slack;
+      if (partEngine.list.every(clearOf) && (type === 'GLITTER' || landing.every((o) => o.distanceTo(p) > 2 * r * slack))) return p;
     }
-    pos.needsUpdate = true;
-    geo.computeVertexNormals();
-    geo.computeBoundingSphere();
   }
-  return { mesh, update };
+  return null;
 }
-
-function syncReflections() {
-  for (const s of duet.shoes) s.reflection.matrix.copy(s.obj.matrix);
+function restRotation(type) {
+  const cfg = PART[type];
+  const spin = rand(-0.5, 0.5);
+  const tilt = THREE.MathUtils.degToRad(cfg.restTilt + rand(-9, 9));
+  const q = new THREE.Quaternion();
+  if (type === 'PEARL') return q;
+  if (type === 'GLITTER') return q.setFromEuler(new THREE.Euler(rand(0, 6), rand(0, 6), rand(0, 6)));
+  q.setFromEuler(new THREE.Euler(tilt, 0, 0));
+  q.multiply(new THREE.Quaternion().setFromAxisAngle(cfg.upright ? v3(0, 0, 1) : v3(0, 1, 0), cfg.upright ? spin : rand(-3.1, 3.1)));
+  return q;
 }
-
-// ---------------------------------------------------------------------------
-// 착지 → 발자국 → 물결
-// ---------------------------------------------------------------------------
-function personColor(person, k) {
-  return WARM_WHITE.clone().lerp(person === 'left' ? BUTTER : PEACH, 0.25 + 0.75 * k);
-}
-
-function onLand(s, kind, time) {
-  const k = colorMix(state.shownSync);
-  const col = personColor(s.person, k);
-  if (kind === 'shuffle') { floor.addRipple(s.x, s.z, time, 0.25, col.clone().multiplyScalar(0.5)); return; }
-  const big = kind === 'final' || kind === 'help';
-  prints.add(s.x, s.z, s.yaw, s.foot === 'L', col.clone().multiplyScalar(big ? 0.85 : kind === 'brace' ? 0.5 : 0.45 + 0.25 * k), time);
-  const g = s.group;
-  const prev = lastLand[g];
-  if (prev && prev.shoe !== s && time - prev.time < 0.09) {
-    // 함께 착지 → 두 물결이 만나 하나의 큰 파동
-    const mid = WARM_WHITE.clone().lerp(BUTTER, 0.5 * k).lerp(PEACH, 0.35 * k);
-    floor.addRipple((prev.x + s.x) / 2, (prev.z + s.z) / 2, time, big ? 2.6 : 1.9, big ? mid.multiplyScalar(1.25) : mid);
-    floor.addRipple(s.x, s.z, time, 0.7, col);
-    lastLand[g] = null;
-  } else {
-    floor.addRipple(s.x, s.z, time, kind === 'brace' ? 0.8 : big ? 1.4 : 1.0, col);
-    lastLand[g] = { shoe: s, time, x: s.x, z: s.z };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 리듬 판정 → 움직임
-// ---------------------------------------------------------------------------
-function onJudge(note, grade, info) {
-  const now = info.real;
-  if (grade === 'miss') {
-    duet.stumble(note.lane, now, info.recover);
-    showJudge('MISS', info.pressedLane ?? note.lane, 'miss');
+function restorePart(rec) {
+  const layer = layers[rec.type];
+  const scale = PART[rec.type].scale;
+  if (rec.type === 'GLITTER') {
+    const seedRand = mulberry(rec.seed);
+    (rec.particles || []).forEach((pos, sub) => {
+      const p = v3(...pos);
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(seedRand() * 6, seedRand() * 6, seedRand() * 6));
+      const i = layer.take();
+      layer.set(i, p, q, scale);
+      partEngine.add(rec.type, i, p, q, rec, sub);
+    });
     return;
   }
-  duet.step(note.lane, now, grade, info.offset || 0);
-  notes.pulse(note.lane, grade === 'perfect' ? 1 : 0.6);
-  showJudge(grade === 'perfect' ? 'PERFECT' : 'GOOD', note.lane, grade);
+  const p = v3(...rec.position);
+  const q = new THREE.Quaternion(...rec.rotation);
+  const i = layer.take();
+  layer.set(i, p, q, scale);
+  partEngine.add(rec.type, i, p, q, rec);
+}
+function mulberry(a) {
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-function onStray(lane) {
-  duet.shuffle(lane, clock());
+/* ---------- a falling piece ---------- */
+function dropPiece(type, from, target, finalQ, startScale, finalScale, opts = {}) {
+  const rec = opts.rec;
+  const layer = layers[type];
+  const i = layer.take();
+  const s = volume.at(target.x, target.z);
+  const hit = v3(target.x + rand(-0.001, 0.001), s.top, target.z + rand(-0.001, 0.001));
+  const h = Math.max(from.y - hit.y, 0.005);
+  const T = Math.sqrt((2 * h) / POUR.gravity);
+  const axis = v3(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize();
+  const spin = rand(5, 11);
+  const p = v3();
+  const q = new THREE.Quaternion();
+  const startQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(rand(0, 6), rand(0, 6), rand(0, 6)));
+  const landed = new THREE.Quaternion();
+  const job = (async () => {
+    await animate(T, (_, u) => {
+      p.lerpVectors(from, hit, u);
+      p.y = from.y - h * u * u;
+      q.setFromAxisAngle(axis, spin * T * u).premultiply(startQ);
+      layer.set(i, p, q, THREE.MathUtils.lerp(startScale, finalScale * 0.82, u));
+    }, ease.linear);
+    landed.copy(q);
+    if (!opts.quiet) ripples.fire(hit, 0.0055);
+    await animate(POUR.sink, (e) => {
+      p.lerpVectors(hit, target, e);
+      q.slerpQuaternions(landed, finalQ, e);
+      layer.set(i, p, q, THREE.MathUtils.lerp(finalScale * 0.82, finalScale, e));
+    }, ease.out);
+    partEngine.add(type, i, target, finalQ, rec || opts.getRec?.(), opts.sub);
+  })();
+  pending.add(job);
+  job.finally(() => pending.delete(job));
+  return job;
 }
 
-function onEvent(type, real) {
-  if (type === 'slip') {
-    duet.slip(real);
-    ui.prompt.classList.add('show');
-  } else if (type === 'help') {
-    duet.help(real);
-    ui.prompt.classList.remove('show');
-    notes.pulse(1, 1);
-  }
-}
+/* ---------- cups ---------- */
+const CUP_R = 0.0175;
+const CUP_H = 0.03;
+async function pour(it) {
+  const { def, node } = it;
+  const type = def.id;
+  const cfg = PART[type];
+  it.busy = true;
+  it.label.classList.add('is-active');
+  store.logAction(type);
+  setMovingGlass(node, true);
 
-function onIdle() {
-  ui.hint.classList.remove('quiet');
-}
+  const a = rand(0, 6.283);
+  const c = 0.03 * Math.sqrt(Math.random());
+  const cx = c * Math.cos(a);
+  const cz = c * Math.sin(a) * 0.9;
+  const th = POUR.tilt;
+  const up = CUP_H * Math.cos(th) - CUP_R * Math.sin(th);
+  const fwd = CUP_H * Math.sin(th) + CUP_R * Math.cos(th);
+  const hover = v3(cx - fwd, POUR.rimHeight - up, cz);
+  const from = node.position.clone();
+  const lifted = from.clone().setY(0.05);
+  const mid = lifted.clone().lerp(hover, 0.5).setY(0.082);
 
-let judgeTimer = 0;
-const projV = new THREE.Vector3();
-function showJudge(text, lane, cls) {
-  projV.set(LANE_X[lane], 0.07, state.lineZ).project(camera);
-  const x = (projV.x * 0.5 + 0.5) * innerWidth, y = (-projV.y * 0.5 + 0.5) * innerHeight;
-  const el = ui.judge;
-  el.textContent = text;
-  el.className = `judge ${cls}`;
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
-  void el.offsetWidth; // 애니메이션 재시작
-  el.classList.add('show');
-  clearTimeout(judgeTimer);
-  judgeTimer = setTimeout(() => el.classList.remove('show'), 650);
-}
-
-// ---------------------------------------------------------------------------
-// 입력 — pointerdown 즉시 처리 (마우스·터치 동일)
-// ---------------------------------------------------------------------------
-function press(lane, touch) {
-  if (!duet || (state.phase !== 'ready' && state.phase !== 'play')) return;
-  flash(ui.btn[lane]);
-  const now = clock();
-  const r = rhythm.press(lane, now, touch);
-  duet.update(now, rhythm.sync);               // 같은 순간 바로 움직임 반영
-  if (r.type === 'start') {
-    state.phase = 'play';
-    if (state.playStart < 0) state.playStart = now;
-    ui.hint.classList.add('quiet');
-  }
-  return r;
-}
-
-function flash(btn) {
-  btn.classList.add('pressed');
-  clearTimeout(btn._t);
-  btn._t = setTimeout(() => btn.classList.remove('pressed'), 140);
-}
-
-let inputBound = false;
-function bindInput() {
-  if (inputBound) return;
-  inputBound = true;
-  ui.btn.forEach((btn, lane) => {
-    btn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
-      press(lane, e.pointerType === 'touch');
-    });
-    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+  await animate(0.42, (e) => node.position.lerpVectors(from, lifted, e));
+  const q0 = lifted.clone();
+  await animate(0.72, (e) => {
+    const u = 1 - e;
+    node.position.set(0, 0, 0)
+      .addScaledVector(q0, u * u).addScaledVector(mid, 2 * u * e).addScaledVector(hover, e * e);
   });
-  addEventListener('keydown', (e) => {
-    if (e.repeat) return;
-    if (e.code === 'ArrowLeft' || e.code === 'KeyF') press(0, false);
-    if (e.code === 'ArrowRight' || e.code === 'KeyJ') press(1, false);
-  });
-  ui.again.addEventListener('click', restart);
-  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
-  document.addEventListener('gesturestart', (e) => e.preventDefault());
-  document.addEventListener('dblclick', (e) => e.preventDefault());
-}
+  await animate(0.42, (e) => { node.rotation.z = -th * e; });
 
-// ---------------------------------------------------------------------------
-// 엔딩 / 다시 걷기
-// ---------------------------------------------------------------------------
-function startEnding(now) {
-  state.phase = 'ending';
-  state.endT = now;
-  // 앞으로 이어지는 길은 몇 걸음만 아주 희미하게 암시
-  for (let i = 1; i <= 2; i++) {
-    const g = i % 2 === 1 ? 0 : 1;
-    for (const s of duet.shoes) {
-      if (s.group !== g) continue;
-      const col = personColor(s.person, 1).multiplyScalar(0.36 * (1 - i / 3.2));
-      prints.add(s.rest.x, duet.centerZ() - 0.05 - i * LEAD * 1.05, 0, s.foot === 'L', col, now + 1.6 + i * 0.35, 1);
-    }
-  }
-}
-
-function restart() {
-  if (state.phase !== 'ending') return;
-  rhythm.reset();
-  duet.reset();
-  prints.clear();
-  floor.clearRipples();
-  lastLand[0] = lastLand[1] = null;
-  Object.assign(state, {
-    phase: 'ready', shownSync: 0, endT: -1, finalStepped: false, textShown: false, againShown: false,
-    lineFade: 1, playStart: -1, endTime: -1,
-  });
-  state.camZ = duet.centerZ();
-  band.update(0, 0);
-  ui.ending.classList.remove('show');
-  ui.ending.setAttribute('aria-hidden', 'true');
-  ui.again.classList.remove('show');
-  ui.hint.classList.remove('quiet');
-  ui.prompt.classList.remove('show');
-  ui.controls.classList.remove('disabled');
-  applyColors(0, 0);
-  updateGauge(0);
-}
-
-// ---------------------------------------------------------------------------
-// 색 · 게이지 · 버튼 강조
-// ---------------------------------------------------------------------------
-function applyColors(k, glow) {
-  if (!mats) return;
-  for (const m of Object.values(mats)) {
-    const u = m.userData.uniforms;
-    u.uMix.value = k;
-    u.uGlow.value = m.userData.reflection ? 0 : glow;
-  }
-  floor.uniforms.uSync.value = k;
-}
-
-let gaugeShown = -1;
-function updateGauge(v) {
-  const p = Math.floor(v);
-  ui.fill.style.width = `${v.toFixed(2)}%`;
-  if (p !== gaugeShown) { ui.pct.textContent = `${p}%`; gaugeShown = p; }
-}
-
-let cueLane = -1, cueStrong = false;
-function updateCue() {
-  let lane = -1, amount = 0, strong = false;
-  if (state.phase === 'play') {
-    if (rhythm.state === 'event') { lane = rhythm.eventLane; amount = 1; strong = true; }
-    else if (rhythm.state === 'play') {
-      const u = rhythm.upcoming();
-      if (u && u.dt < 0.75) { lane = u.lane; amount = smooth(0.75, 0.1, u.dt); }
-    }
-  }
-  notes.cue(lane, amount);
-  if (lane !== cueLane || strong !== cueStrong) {
-    ui.btn.forEach((b, i) => { b.classList.toggle('cue', i === lane); b.classList.toggle('cue-strong', i === lane && strong); });
-    cueLane = lane; cueStrong = strong;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 카메라
-// ---------------------------------------------------------------------------
-const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), endPos = new THREE.Vector3(), endLook = new THREE.Vector3();
-function placeCamera(dt, now) {
-  const target = duet ? duet.centerZ() : 0;
-  state.camZ = dt > 0 ? lerp(state.camZ, target, 1 - Math.exp(-dt * 2.6)) : target;
-  const z = state.camZ;
-  const aspect = innerWidth / innerHeight;
-  const vfov = THREE.MathUtils.degToRad(40); // 기본 시야 기준으로 거리 계산 (엔딩의 시야 변화와 무관)
-  const hfovHalf = Math.atan(Math.tan(vfov / 2) * aspect);
-  const fit = Math.max(1, 0.36 / (Math.tan(hfovHalf) * 1.18));
-  // 세로 화면에서는 하단 버튼에 가리지 않도록 신발을 조금 위쪽에
-  const ahead = lerp(0.35, 0.62, clamp((aspect - 0.6) / 0.9, 0, 1));
-  camPos.set(0, 1.0 * fit, z + 1.35 * fit);
-  camLook.set(0, 0, z - ahead * fit);
-  if (state.phase === 'ending') {
-    // 천천히 높아지며 뒤로 → 신발은 화면 아래쪽, 함께 걸어온 발자국이 그 뒤로 이어짐
-    const e = smooth(0.4, 5.5, now - state.endT);
-    // 신발은 문구 아래쪽, 그 뒤로 함께 걸어온 발자국이 화면 아래까지 이어짐
-    endPos.set(0, 2.7 * fit, z + 1.9 * fit);
-    endLook.set(0, 0, z - 1.05 * fit);
-    camPos.lerp(endPos, e);
-    camLook.lerp(endLook, e);
-    // 시야를 살짝 넓혀 문구·버튼 아래에 신발, 그 뒤로 걸어온 길이 함께 담기도록
-    const fov = 40 + 6 * e;
-    if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
-  } else if (camera.fov !== 40) {
-    camera.fov = 40; camera.updateProjectionMatrix();
-  }
-  camera.position.copy(camPos);
-  camera.lookAt(camLook);
-}
-
-// ---------------------------------------------------------------------------
-// 루프
-// ---------------------------------------------------------------------------
-let last = clock();
-const perf = { frames: 0, t0: -1, checked: false };
-function frame() {
-  requestAnimationFrame(frame);
-  const now = clock();
-  const dt = Math.min(0.1, now - last);
-  last = now;
-  floor.uniforms.uTime.value = now;
-  prints.uniforms.uTime.value = now;
-
-  if (duet) {
-    rhythm.update(now, dt);
-    duet.update(now, rhythm.sync);
-    band.update(dt, duet.tension);
-    syncReflections();
-
-    // 게이지는 판정 결과(rhythm.sync)를 부드럽게 따라감
-    const target = rhythm.sync;
-    state.shownSync += (target - state.shownSync) * (1 - Math.exp(-dt * 4));
-    if (Math.abs(target - state.shownSync) < 0.2) state.shownSync = target;
-    updateGauge(state.shownSync);
-
-    // 판정선: 신발 앞쪽 바닥
-    state.lineZ = state.camZ - 0.36;
-    // 친구의 실수 이벤트 동안에는 노트를 흐리게 → 신발과 '도와주기'에 집중
-    const lineTarget = state.phase === 'play' || state.phase === 'ready' ? (rhythm.state === 'event' || rhythm.state === 'help' ? 0.3 : 1) : 0;
-    state.lineFade = lerp(state.lineFade, lineTarget, 1 - Math.exp(-dt * 4));
-    notes.update(rhythm, state.lineZ, state.lineFade, now);
-    updateCue();
-
-    // 100% → 마지막 걸음을 함께 → 엔딩
-    if (state.phase === 'play' && rhythm.state === 'done') {
-      state.phase = 'finishing';
-      ui.controls.classList.add('disabled');
-      ui.prompt.classList.remove('show');
-    }
-    if (state.phase === 'finishing' && !state.finalStepped && !duet.busy) {
-      state.finalStepped = true;
-      const zA = duet.shoe(0, true).z, zB = duet.shoe(1, true).z;
-      duet.step(zA > zB ? 0 : 1, now, 'final');
-      state.endTime = now - state.playStart;
-    }
-    if (state.phase === 'finishing' && state.finalStepped && !duet.busy) startEnding(now);
-
-    const k = colorMix(state.shownSync);
-    let glow = 0;
-    if (state.phase === 'ending') {
-      const t = now - state.endT;
-      glow = 0.04 * smooth(0, 2, t) * (0.8 + 0.2 * Math.sin(t * 1.5));
-      prints.uniforms.uReveal.value = smooth(0.5, 3.5, t);
-      floor.uniforms.uReveal.value = smooth(0.5, 3.5, t);
-      if (!state.textShown && t > 3.0) { state.textShown = true; ui.ending.classList.add('show'); ui.ending.setAttribute('aria-hidden', 'false'); }
-      if (!state.againShown && t > 4.6) { state.againShown = true; ui.again.classList.add('show'); }
+  const jobs = [];
+  const rimWorld = v3();
+  const glitter = type === 'GLITTER';
+  const seed = Math.floor(Math.random() * 1e9);
+  let pinch = null;
+  for (let n = 0; n < cfg.perPour; n++) {
+    await wait(glitter ? rand(0.012, 0.03) : rand(0.08, 0.13)); // pieces slide out on their own
+    // rim lowest point, cup is tilted to the right
+    node.updateMatrixWorld();
+    rimWorld.set(CUP_R, CUP_H, rand(-0.008, 0.008)).applyMatrix4(node.matrixWorld);
+    const spot = findSpot(type, cx, cz, glitter ? cfg.spread : 0.017);
+    if (!spot) continue;
+    const q = restRotation(type);
+    landing.push(spot);
+    if (glitter) {
+      if (!pinch) {
+        pinch = { type, position: spot.toArray(), rotation: [0, 0, 0, 1], scale: cfg.scale, count: 0, seed, particles: [], action: store.snapshot().sequence.length };
+        store.addPart(pinch);
+      }
+      pinch.particles.push(spot.toArray().map((v) => +v.toFixed(4)));
+      pinch.count = pinch.particles.length;
+      jobs.push(dropPiece(type, rimWorld.clone(), spot, q, cfg.scale * 0.6, cfg.scale, { quiet: n % 8, rec: pinch, sub: pinch.count - 1 }));
     } else {
-      prints.uniforms.uReveal.value = 0;
-      floor.uniforms.uReveal.value = 0;
+      const rec = { type, position: spot.toArray(), rotation: q.toArray(), scale: cfg.scale, action: store.snapshot().sequence.length };
+      store.addPart(rec);
+      jobs.push(dropPiece(type, rimWorld.clone(), spot, q, 1, cfg.scale, { rec }));
     }
-    applyColors(k, glow);
-    floor.uniforms.uCenter.value.set(0, duet.centerZ());
   }
+  store.touch();
 
-  placeCamera(dt, now);
-  floor.mesh.position.set(camera.position.x, 0, camera.position.z - 6);
-  if (NORENDER) return;
-  if (useBloom) composer.render(dt); else renderer.render(scene, camera);
-  autoQuality(now);
-}
-requestAnimationFrame(frame);
-
-// 프레임이 부족하면 해상도·블룸을 자동으로 낮춤
-function autoQuality(now) {
-  if (perf.checked || state.phase === 'loading') return;
-  if (perf.t0 < 0) { perf.t0 = now; perf.frames = 0; return; }
-  perf.frames++;
-  if (now - perf.t0 < 3) return;
-  const fps = perf.frames / (now - perf.t0);
-  perf.checked = true;
-  if (fps < 45) {
-    pixelRatio = Math.max(1, pixelRatio * 0.7);
-    renderer.setPixelRatio(pixelRatio);
-    composer.setPixelRatio(pixelRatio);
-    bloom.resolution.set(innerWidth / 2, innerHeight / 2);
-  }
-  if (fps < 28) useBloom = false;
-  window.__philiaQuality = { fps: Math.round(fps), pixelRatio, bloom: useBloom };
+  await wait(0.22);
+  await animate(0.4, (e) => { node.rotation.z = -th * (1 - e); });
+  const q1 = node.position.clone();
+  const backTop = it.home.clone().setY(0.05);
+  const backMid = q1.clone().lerp(backTop, 0.5).setY(0.082);
+  await animate(0.72, (e) => {
+    const u = 1 - e;
+    node.position.set(0, 0, 0)
+      .addScaledVector(q1, u * u).addScaledVector(backMid, 2 * u * e).addScaledVector(backTop, e * e);
+  });
+  const land = node.position.clone();
+  await animate(0.4, (e) => node.position.lerpVectors(land, it.home, e));
+  node.position.copy(it.home);
+  node.rotation.set(0, 0, 0);
+  setMovingGlass(node, false);
+  it.busy = false;
+  it.label.classList.remove('is-active');
+  await Promise.all(jobs);
+  landing.length = 0;
 }
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
+// three's transmission can't see other transmissive objects, so glass that passes over the
+// gel switches to plain alpha glass while it moves. Otherwise the gel vanishes behind it.
+const alphaGlass = new Map();
+function setMovingGlass(root, on) {
+  root.traverse((o) => {
+    if (!o.isMesh || !o.material || !/^MAT_GLASS/.test(o.material.name)) return;
+    if (on) {
+      o.userData.baseMaterial = o.material;
+      if (!alphaGlass.has(o.material)) {
+        const m = o.material.clone();
+        m.transmission = 0;
+        m.transparent = true;
+        m.opacity = 0.2;
+        m.depthWrite = false;
+        alphaGlass.set(o.material, m);
+      }
+      o.material = alphaGlass.get(o.material);
+    } else if (o.userData.baseMaterial) {
+      o.material = o.userData.baseMaterial;
+    }
+  });
+}
+
+/* ---------- serum dropper ---------- */
+const dropMode = { it: null, aim: null, done: null, chain: Promise.resolve(), goal: v3() };
+const dropbar = document.getElementById('dropbar');
+const DROPPER_Y = 0.104;
+
+async function useDropper(it) {
+  const { def } = it;
+  const d = it.dropper;
+  it.busy = true;
+  it.label.classList.add('is-active');
+  store.logAction(def.id);
+  scene.attach(d);
+  setMovingGlass(d, true);
+  const from = d.position.clone();
+  const lifted = from.clone().add(v3(0, 0.062, 0));
+  await animate(0.6, (e) => d.position.lerpVectors(from, lifted, e));
+  const start = v3(0, DROPPER_Y, 0.004);
+  const q0 = lifted.clone();
+  const mid = q0.clone().lerp(start, 0.5).setY(Math.max(q0.y, DROPPER_Y) + 0.018);
+  await animate(0.75, (e) => {
+    const u = 1 - e;
+    d.position.set(0, 0, 0).addScaledVector(q0, u * u).addScaledVector(mid, 2 * u * e).addScaledVector(start, e * e);
+  });
+  dropMode.it = it;
+  dropMode.goal.copy(start);
+  dropMode.chain = Promise.resolve();
+  dropbar.hidden = false;
+  await new Promise((resolve) => { dropMode.done = resolve; });
+  dropbar.hidden = true;
+  dropMode.it = null;
+  await dropMode.chain;
+  const back = d.position.clone();
+  const parent = it.node;
+  const homeWorld = it.home.clone().add(it.dropperLocal);
+  const top = homeWorld.clone().setY(homeWorld.y + 0.062);
+  const mid2 = back.clone().lerp(top, 0.5).setY(Math.max(back.y, top.y) + 0.018);
+  await animate(0.75, (e) => {
+    const u = 1 - e;
+    d.position.set(0, 0, 0).addScaledVector(back, u * u).addScaledVector(mid2, 2 * u * e).addScaledVector(top, e * e);
+  });
+  await animate(0.6, (e) => d.position.lerpVectors(top, homeWorld, e));
+  parent.attach(d);
+  d.position.copy(it.dropperLocal);
+  d.quaternion.identity();
+  setMovingGlass(d, false);
+  it.busy = false;
+  it.label.classList.remove('is-active');
+}
+function finishDropper() { if (dropMode.done) { const f = dropMode.done; dropMode.done = null; f(); } }
+
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+const aimPlane = new THREE.Plane(v3(0, 1, 0), -0.02);
+function pointerOnGel(ev) {
+  const r = canvas.getBoundingClientRect();
+  ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.ray.intersectPlane(aimPlane, v3());
+  return hit && volume.fits(hit.x, hit.z, BLOB.radius * BLOB.flat) ? hit : null;
+}
+function pickProxy(ev) {
+  const r = canvas.getBoundingClientRect();
+  ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects([...items.values()].map((i) => i.proxy), false);
+  return hits.length ? items.get(hits[0].object.userData.id) : null;
+}
+function squeezeAndDrop(it, spot) {
+  const type = it.def.id;
+  const d = it.dropper;
+  const bulb = d.getObjectByName(`DROPPER_${type}_BULB`);
+  const tip = d.getObjectByName(`TIP_${type}`);
+  // tip sits straight below the dropper origin
+  const tipOffset = tip.position.y;
+  dropMode.chain = dropMode.chain.then(async () => {
+    dropMode.goal.set(spot.x, DROPPER_Y, spot.z);
+    const from = d.position.clone();
+    await animate(0.16, (e) => d.position.lerpVectors(from, dropMode.goal, e));
+    await animate(0.16, (_, u) => {
+      const k = Math.sin(u * Math.PI);
+      bulb.scale.set(1 + 0.08 * k, 1 - 0.14 * k, 1 + 0.08 * k);
+    }, ease.linear);
+    bulb.scale.setScalar(1);
+    const s = volume.at(spot.x, spot.z);
+    const target = v3(spot.x, s.bottom + (s.top - s.bottom) * 0.46, spot.z);
+    store.addPigment({ type, position: target.toArray(), action: store.snapshot().sequence.length });
+    const job = fallDroplet(it, v3(spot.x, DROPPER_Y + tipOffset, spot.z), target, s.top);
+    pending.add(job);
+    job.finally(() => pending.delete(job));
+  });
+}
+const dropletPool = [];
+async function fallDroplet(it, from, target, surfaceY) {
+  const type = it.def.id;
+  const color = new THREE.Color(PIGMENT[type].color);
+  const m = dropletPool.pop() || new THREE.Mesh(items.dropletGeometry, items.dropletMaterial.clone());
+  m.material.color.copy(color);
+  m.position.copy(from);
+  m.scale.setScalar(0.1);
+  scene.add(m);
+  await animate(0.12, (e) => m.scale.setScalar(0.1 + 1.5 * e));
+  const h = from.y - surfaceY;
+  const T = Math.sqrt((2 * h) / POUR.gravity);
+  await animate(T, (_, u) => {
+    m.position.y = from.y - h * u * u;
+    const v = 1 + 0.35 * u;
+    m.scale.set(1.6 / Math.sqrt(v), 1.6 * v, 1.6 / Math.sqrt(v));
+  }, ease.linear);
+  ripples.fire(m.position, 0.0075, 0.5);
+  pigment.splat(target.x, target.z, type);
+  pigment.remeasure();
+  scheduleSave();
+  const hit = m.position.clone();
+  await animate(0.4, (e) => {
+    m.position.lerpVectors(hit, target, e);
+    m.scale.setScalar(1.6 * (1 - e));
+  }, ease.out);
+  scene.remove(m);
+  dropletPool.push(m);
+}
+
+/* ---------- input queue ---------- */
+const queue = [];
+let working = false;
+async function runQueue() {
+  if (working) { return; }
+  working = true;
+  setLocked(true);
+  syncButtons();
+  while (queue.length) {
+    const job = queue.shift();
+    await job();
+  }
+  await Promise.all([...pending]);
+  working = false;
+  setLocked(false);
+  syncButtons();
+}
+function setLocked(on) {
+  app.classList.toggle('is-locked', on);
+  items.forEach((x) => { x.label.setAttribute('aria-disabled', on); });
+}
+// One ingredient at a time. While it is being added, every other choice is ignored.
+function select(id) {
+  const it = items.get(id);
+  if (dropMode.it === it) { finishDropper(); return; }
+  if (working || mode !== 'add') return;
+  queue.push(() => (it.def.kind === 'part' ? pour(it) : useDropper(it)));
+  runQueue();
+}
+function resetAll() {
+  if (mode === 'moving' || (working && !dropMode.it)) return; // wait for the running animation
+  hand?.stop();
+  finishDropper();
+  queue.push(async () => {
+    await Promise.all([...pending]);
+    store.reset();
+    Object.values(layers).forEach((l) => l.clear());
+    mix.reset();
+    clearSaved();
+    if (mode !== 'add') await setMode('add');
+  });
+  runQueue();
+}
+
+canvas.addEventListener('pointermove', (ev) => {
+  if (mode !== 'add') return;
+  if (dropMode.it) {
+    const p = pointerOnGel(ev);
+    if (p) dropMode.goal.set(p.x, DROPPER_Y, p.z);
+    canvas.style.cursor = p ? 'crosshair' : 'default';
+    return;
+  }
+  const it = ev.pointerType === 'mouse' && !working ? pickProxy(ev) : null;
+  items.forEach((x) => x.label.classList.toggle('is-hover', x === it));
+  canvas.style.cursor = it ? 'pointer' : 'default';
 });
-camera.aspect = innerWidth / innerHeight;
-camera.updateProjectionMatrix();
+canvas.addEventListener('pointerup', (ev) => {
+  if (mode !== 'add') return;
+  if (dropMode.it) {
+    const hit = pickProxy(ev);
+    if (hit && !pointerOnGel(ev)) { select(hit.def.id); return; }
+    const p = pointerOnGel(ev);
+    if (p) squeezeAndDrop(dropMode.it, p);
+    return;
+  }
+  const it = pickProxy(ev);
+  if (it) select(it.def.id);
+});
+document.getElementById('dropdone').addEventListener('click', finishDropper);
+document.getElementById('reset').addEventListener('click', resetAll);
+addEventListener('resize', applyLayout);
+
+/* ---------- modes ---------- */
+const $ = (id) => document.getElementById(id);
+const guide = $('guide');
+let guideTimer;
+function syncButtons() {
+  $('mixbtn').hidden = mode !== 'add' || working;
+  $('mixbar').hidden = mode !== 'mix';
+  $('reset').hidden = mode === 'moving' || mode === 'ending';
+  app.dataset.mode = mode;
+}
+async function setMode(next) {
+  if (mode === 'moving' || mode === next) return;
+  const prev = mode;
+  const from = camera.position.clone();
+  const fromT = lookTarget.clone();
+  const to = cameraPose(next);
+  mode = 'moving';
+  syncButtons();
+  guide.hidden = true;
+  if (prev === 'ending') $('ending').hidden = true;
+  const t = v3();
+  app.classList.toggle('mixing', next !== 'add');
+  const retreat = (u) => items.forEach((it) => {
+    it.node.position.set(it.home.x * (1 + 0.9 * u), 0, it.home.z * (1 + 0.9 * u) - 0.05 * u);
+    it.node.scale.setScalar(1 - 0.35 * u);
+  });
+  if (next === 'add') items.forEach((it) => { it.node.visible = true; });
+  const spin = stage.rotation.y;
+  await animate(0.9, (e) => {
+    camera.position.lerpVectors(from, to.position, e);
+    t.lerpVectors(fromT, to.target, e);
+    lookTarget.copy(t);
+    camera.lookAt(t);
+    stage.rotation.y = spin * (1 - e);
+    if (prev === 'add') retreat(e);
+    if (next === 'add') retreat(1 - e);
+  });
+  if (next !== 'add') items.forEach((it) => { it.node.visible = false; });
+  mode = next;
+  swayTime = 0;
+  syncButtons();
+  clearTimeout(guideTimer);
+  if (next === 'mix') {
+    guide.hidden = false;
+    guide.classList.remove('gone');
+    guideTimer = setTimeout(() => guide.classList.add('gone'), 4500);
+  }
+  if (next === 'ending') showEnding();
+  else if (hand?.on && next !== 'mix') hand.stop();
+}
+$('mixbtn').addEventListener('click', () => { if (!working) setMode('mix'); });
+$('addbtn').addEventListener('click', () => { if (!mix.busy) setMode('add'); });
+$('donebtn').addEventListener('click', () => { if (!mix.busy) { hand?.stop(); setMode('ending'); } });
+
+/* ---------- ending ---------- */
+function usedText() {
+  const s = store.summary();
+  return s.ingredients.map((i) => i.name).join(' · ') || '투명한 말랑이';
+}
+function showEnding() {
+  const sum = store.summary();
+  $('endname').textContent = makeName(sum);
+  $('endused').textContent = usedText();
+  $('ending').hidden = false;
+  $('savemsg').textContent = '';
+}
+const CARD_W = () => Math.min(renderer.capabilities.maxTextureSize, portrait ? 2400 : 3600);
+async function saveImage(kind) {
+  const msg = $('savemsg');
+  msg.textContent = '이미지를 만들고 있어요.';
+  await new Promise((r) => setTimeout(r, 40));
+  try {
+    await document.fonts.ready;
+    const w = CARD_W();
+    const still = renderStill({ renderer, scene, camera, width: w, height: w });
+    const name = $('endname').textContent;
+    if (kind === 'card') {
+      const card = composeCard(still, { title: 'PHILIA', heading: '당신의 우정 말랑이', name, used: usedText() });
+      await saveCanvas(card, 'PHILIA_우정말랑이_카드.png');
+    } else {
+      await saveCanvas(still, 'PHILIA_우정말랑이.png');
+    }
+    msg.textContent = '';
+  } catch (e) {
+    console.error(e);
+    msg.textContent = '저장하지 못했어요. 다시 눌러 주세요.';
+  }
+}
+$('savecard').addEventListener('click', () => saveImage('card'));
+$('saveobject').addEventListener('click', () => saveImage('object'));
+$('again').addEventListener('click', () => resetAll());
+
+/* ---------- saving the mix ---------- */
+const FIELD_KEY = 'philia.field.v1';
+const PLASTIC_KEY = 'philia.plastic.v1';
+let saveTimer;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(FIELD_KEY, pigment.serialize());
+      localStorage.setItem(PLASTIC_KEY, deform.serialize());
+    } catch { /* storage unavailable: keep in memory */ }
+  }, 300);
+}
+function clearSaved() {
+  clearTimeout(saveTimer);
+  try { localStorage.removeItem(FIELD_KEY); localStorage.removeItem(PLASTIC_KEY); } catch { /* ignore */ }
+}
+function readSaved(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+/* ---------- boot ---------- */
+function handUI() {
+  const video = $('camvideo');
+  const dots = $('camdots');
+  const pointerEl = $('handpointer');
+  const box = $('cam');
+  const g = dots.getContext('2d');
+  let previewOn = true;
+  const refresh = () => {
+    const on = hand?.on;
+    box.hidden = !on;
+    box.classList.toggle('collapsed', !previewOn);
+    $('camtoggle').textContent = previewOn ? '카메라 숨기기' : '카메라 보기';
+    $('handbtn').hidden = !!on;
+  };
+  $('camtoggle').addEventListener('click', () => { previewOn = !previewOn; refresh(); });
+  $('handoff').addEventListener('click', () => { hand.stop(); refresh(); });
+  $('handbtn').addEventListener('click', () => hand.start().then(refresh));
+  return {
+    video,
+    status: (t) => { $('handmsg').textContent = t; $('handmsg').hidden = !t; },
+    showPreview: () => setTimeout(refresh),
+    previewVisible: () => previewOn,
+    pointer(p) {
+      if (!p) { pointerEl.hidden = true; return; }
+      pointerEl.hidden = false;
+      pointerEl.classList.toggle('pinching', p.pinching);
+      pointerEl.style.transform = `translate(${(p.x * 0.5 + 0.5) * app.clientWidth}px, ${(-p.y * 0.5 + 0.5) * app.clientHeight}px)`;
+    },
+    drawHand(lm) {
+      g.clearRect(0, 0, dots.width, dots.height);
+      if (!lm || !previewOn) return;
+      g.fillStyle = '#ffffff';
+      for (const i of [4, 8]) {
+        g.beginPath();
+        g.arc((1 - lm[i].x) * dots.width, lm[i].y * dots.height, 5, 0, 7);
+        g.fill();
+      }
+    },
+  };
+}
+
+function setup(gltf) {
+  const root = gltf.scene;
+  scene.add(root);
+  root.getObjectByName('MASTERS').visible = false;
+  slime = root.getObjectByName('SLIME_BASE');
+  slime.position.set(0, 0, 0);
+  stage = new THREE.Group();     // gel and contents turn together at the end
+  scene.add(stage);
+  stage.add(slime);
+  slime.getObjectByName('SLIME_BUBBLES').visible = false;
+  applyGel(slime);
+  volume = buildVolume(slime.geometry);
+  inside = new THREE.Group();
+  inside.name = 'MIX_CONTENTS';
+  stage.add(inside);
+  ripples = new Ripples(scene);
+
+  root.traverse((o) => {
+    if (o.material && /^MAT_GLASS/.test(o.material.name)) o.material.depthWrite = false; // serum liquid is alpha blended
+  });
+
+  const labelBox = document.getElementById('labels');
+  const proxyMat = new THREE.MeshBasicMaterial();
+  for (const def of INGREDIENTS) {
+    const isPart = def.kind === 'part';
+    const node = root.getObjectByName(`${isPart ? 'CUP' : 'SERUM'}_${def.id}`);
+    const height = isPart ? 0.034 : 0.09;
+    const radius = isPart ? 0.019 : 0.015;
+    const proxy = new THREE.Mesh(new THREE.CylinderGeometry(radius * 1.25, radius * 1.25, height, 12), proxyMat);
+    proxy.visible = false;
+    proxy.userData.id = def.id;
+    scene.add(proxy);
+    const label = document.createElement('button');
+    label.type = 'button';
+    label.className = 'label';
+    label.innerHTML = `<b>${def.name}</b><span>${def.meaning}</span>`;
+    label.setAttribute('aria-label', `${def.name}, ${def.meaning}`);
+    label.addEventListener('click', () => select(def.id));
+    label.addEventListener('pointerenter', () => label.classList.add('is-hover'));
+    label.addEventListener('pointerleave', () => label.classList.remove('is-hover'));
+    labelBox.append(label);
+    const it = { def, node, home: v3(), proxy, label, busy: false, height, radius };
+    if (!isPart) {
+      it.dropper = node.getObjectByName(`DROPPER_${def.id}`);
+      it.dropperLocal = it.dropper.position.clone();
+    }
+    items.set(def.id, it);
+  }
+  for (const [type, cfg] of Object.entries(PART)) {
+    const master = root.getObjectByName(`PART_${type}_MASTER`);
+    layers[type] = new PartLayer(inside, master.geometry, master.material, MAX_VISIBLE[type] || MAX_VISIBLE.default);
+    cfg.master = master.name;
+  }
+  const droplet = root.getObjectByName('DROPLET_MASTER');
+  items.dropletGeometry = droplet.geometry;
+  items.dropletMaterial = droplet.material;
+
+  deform = new DeformEngine(slime.geometry);
+  pigment = new PigmentEngine(renderer, inside, volume, app.clientWidth < 700 ? 340 : 512);
+  partEngine = new PartEngine(layers, volume, PART);
+  mix = new MixEngine({
+    deform, pigment, parts: partEngine, volume,
+    onCommit: () => { store.touch(); scheduleSave(); },
+  });
+  attachPointer({ canvas, camera, engine: mix, enabled: () => mode === 'mix' });
+  hand = new HandInput({ camera, engine: mix, enabled: () => mode === 'mix', ui: handUI() });
+
+  applyLayout();
+  const saved = store.load();
+  saved.parts.forEach(restorePart);
+  const field = readSaved(FIELD_KEY);
+  const restored = field && pigment.restore(field);
+  if (!restored) saved.pigments.forEach((r) => pigment.splat(r.position[0], r.position[2], r.type));
+  pigment.remeasure();
+  const plastic = readSaved(PLASTIC_KEY);
+  if (plastic) { deform.restore(plastic); pigment.bend(deform); }
+  syncButtons();
+  window.PHILIA = {
+    ready: true, scene, camera, items, select, finishDropper, resetAll,
+    state: store.snapshot, summary: store.summary, volume, layers, setMode, makeName, get hand() { return hand; }, get mode() { return mode; }, get mix() { return mix; },
+    get pigment() { return pigment; }, get parts() { return partEngine; }, get deform() { return deform; },
+    THREE, slime, idle: () => !working && !queue.length && !pending.size,
+    debug: () => ({ working, queue: queue.length, pending: pending.size, active: [...items.values()].filter((i) => i.busy).map((i) => i.def.id), dropper: !!dropMode.it }),
+    dropAt: (x, z) => { if (dropMode.it) squeezeAndDrop(dropMode.it, v3(x, 0, z)); },
+    inDropper: () => !!dropMode.it,
+  };
+}
+
+const b64 = window.PHILIA_GLB_B64;
+const loader = new GLTFLoader();
+const fail = (e) => {
+  console.error(e);
+  document.getElementById('loaderror').hidden = false;
+};
+if (b64) {
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  loader.parse(bytes.buffer, '', setup, fail);
+} else {
+  loader.load(`${import.meta.env.BASE_URL}PHILIA_objects.glb`, setup, undefined, fail);
+}
+
+// ?maxfps=1&speed=4 are for slow software-rendering test machines only.
+const query = new URLSearchParams(location.search);
+const maxFps = Number(query.get('maxfps')) || 0;
+const testSpeed = Number(query.get('speed')) || 1;
+const clock = new THREE.Clock();
+let sinceDraw = 0;
+renderer.setAnimationLoop(() => {
+  const raw = clock.getDelta();
+  sinceDraw += raw;
+  if (maxFps && sinceDraw < 1 / maxFps) return;
+  const dt = Math.min(maxFps ? sinceDraw : raw, maxFps ? 0.5 : 0.1);
+  sinceDraw = 0;
+  stepTweens(dt * testSpeed);
+  if (stage && mode === 'ending') { swayTime += dt; stage.rotation.y = Math.sin(swayTime * 0.22) * 0.28; }
+  if (mix) mix.step(dt * testSpeed);
+  if (ripples) ripples.step(dt);
+  if (dropMode.it && dropMode.done) {
+    const d = dropMode.it.dropper;
+    const k = 1 - Math.exp(-dt * 12);
+    d.position.x += (dropMode.goal.x - d.position.x) * k;
+    d.position.z += (dropMode.goal.z - d.position.z) * k;
+  }
+  const t0 = performance.now();
+  if (query.has('norender')) scene.updateMatrixWorld(); else renderer.render(scene, camera);
+  window.PHILIA_FRAME_MS = performance.now() - t0;
+});

@@ -1,0 +1,196 @@
+import * as THREE from 'three';
+import { FOLD_HINGE } from './deform.js';
+
+// Mixing engine. Input code only ever calls press / drag / stretch / fold / release, with
+// positions on the gel in slime-local metres. A hand tracker can call the same methods.
+const DRAG_START = 0.007;
+
+export class MixEngine {
+  constructor({ deform, pigment, parts, volume, onCommit }) {
+    Object.assign(this, { deform, pigment, parts, volume, onCommit });
+    this.g = null;
+    this.quiet = 0;
+    this.heartClock = 0;
+  }
+
+  /* ---------- common commands ---------- */
+  press(pt) {
+    const r = Math.hypot(pt.x, pt.z);
+    const rim = this.volume.rim(pt.x, pt.z);
+    if (r > rim * 1.14) return false;
+    const inner = pt.x * Math.min(1, (rim * 0.94) / r || 1);
+    const innerZ = pt.z * Math.min(1, (rim * 0.94) / r || 1);
+    const edge = r > rim * 0.64;
+    const d = this.deform.add('press', { x: inner, z: innerZ });
+    d.a.goal = 0.008;
+    this.g = { kind: 'press', edge, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0, centre: { x: inner, z: innerZ } };
+    return true;
+  }
+  drag(pt) {
+    const g = this.g;
+    if (!g) return;
+    g.now = { x: pt.x, z: pt.z };
+    const tx = pt.x - g.start.x;
+    const tz = pt.z - g.start.z;
+    const len = Math.hypot(tx, tz);
+    if (g.kind === 'press' && g.edge && len > DRAG_START) {
+      const r = Math.hypot(g.start.x, g.start.z) || 1;
+      const out = (tx * g.start.x + tz * g.start.z) / r;
+      if (out >= 0) this.stretch(); else this.fold();
+    } else if (g.kind === 'press') {
+      g.d.x = pt.x; g.d.z = pt.z;
+    }
+  }
+  stretch() {
+    const g = this.g;
+    g.d.held = false; g.d.a.goal = 0;
+    const d = this.deform.add('stretch', { x: g.start.x, z: g.start.z });
+    Object.assign(g, { kind: 'stretch', d });
+  }
+  fold() {
+    const g = this.g;
+    g.d.held = false; g.d.a.goal = 0;
+    // The flap is whatever lies opposite the drag, so all directions work the same.
+    const tx = g.now.x - g.start.x;
+    const tz = g.now.z - g.start.z;
+    const len = Math.hypot(tx, tz) || 1;
+    const n = { x: -tx / len, z: -tz / len };
+    const grab = g.start.x * n.x + g.start.z * n.z;
+    const d = this.deform.add('fold', { nx: n.x, nz: n.z, grab });
+    Object.assign(g, { kind: 'fold', d, n, grab, seed: Math.random() * 40 });
+  }
+  release() {
+    const g = this.g;
+    if (!g) return;
+    this.g = null;
+    const folded = g.kind === 'fold' && g.d.a.v > 0.008;
+    if (folded) {
+      // Bake where the fold put things, then let only the shell unroll.
+      this.parts.landFold(this.deform, g.d);
+      this.pigment.bakeSheet();
+      g.d.detached = true;
+      this.pigment.bend(this.deform);
+      const s0 = g.d.grab - g.d.a.v * FOLD_HINGE;
+      this.comb = { x: g.n.x * s0, z: g.n.z * s0, left: 8, amount: 0.00028, seed: g.seed };
+    }
+    if (g.kind !== 'fold') this.deform.remember(g.d);
+    g.d.held = false;
+    g.d.a.goal = 0;
+    g.d.b.goal = 0;
+    this.quiet = 1;
+    this.parts.awake = Math.max(this.parts.awake, 1);
+  }
+
+  /* ---------- per frame ---------- */
+  step(dt) {
+    const g = this.g;
+    if (g) this.applyGesture(g, dt);
+    else if (this.comb) this.runComb();
+    const live = this.deform.active;
+    if (live) { this.deform.step(dt); this.pigment.bend(this.deform); }
+    this.parts.step(dt, this.deform);
+    if (!live && !g && this.quiet > 0) {
+      this.quiet = 0;
+      this.deform.write();
+      this.pigment.bend(this.deform);
+      this.pigment.conserve();
+      this.parts.commit();
+      this.onCommit();
+    }
+  }
+  // Layers that just met pull into each other along the fold.
+  runComb() {
+    const c = this.comb;
+    this.pigment.advect({ curl: { x: c.x, z: c.z, amount: c.amount }, seed: c.seed });
+    if (--c.left <= 0) this.comb = null;
+  }
+  applyGesture(g, dt) {
+    const dx = g.now.x - g.last.x;
+    const dz = g.now.z - g.last.z;
+    const move = Math.hypot(dx, dz);
+    g.last = { ...g.now };
+    g.held += dt;
+    if (g.kind === 'press') this.applyPress(g, dt, dx, dz, move);
+    else if (g.kind === 'stretch') this.applyStretch(g, dx, dz, move);
+    else this.applyFold(g);
+  }
+  applyPress(g, dt, dx, dz, move) {
+    const d = g.d;
+    d.a.goal = Math.min(0.0145, 0.008 + g.held * 0.009);
+    const c = { x: d.x, z: d.z };
+    const pushing = Math.min(1, 0.25 + g.held) * (1 + move * 300);
+    this.parts.push((p) => {
+      const ox = p.base.x - c.x; const oz = p.base.z - c.z;
+      const r = Math.hypot(ox, oz) || 1e-5;
+      const w = Math.exp(-(r * r) / (0.024 * 0.024));
+      if (w < 0.02) return null;
+      const f = 0.007 * w * dt * pushing;
+      return { x: (ox / r) * f + dx * w * 0.35, z: (oz / r) * f + dz * w * 0.35, size: f + move * 0.2 * w, dirX: ox, dirZ: oz };
+    });
+    this.parts.separate();
+    this.pigment.advect({
+      press: { x: c.x, z: c.z, amount: 0.00015 * Math.min(1, 0.3 + g.held) * (g.held < 2.5 ? 1 : 0.15) },
+      smear: move > 0 ? { x: c.x, z: c.z, dx: dx * 0.8, dz: dz * 0.8, size: 0.016 } : null,
+      curl: move > 0 ? { x: c.x, z: c.z, amount: move * 0.05 } : null,
+      swirls: this.ribbonSwirls(c, move),
+      diffuse: 0.006,
+    });
+    this.hearts(c);
+  }
+  applyStretch(g, dx, dz, move) {
+    const d = g.d;
+    const tx = g.now.x - g.start.x;
+    const tz = g.now.z - g.start.z;
+    const len = Math.hypot(tx, tz);
+    const k = Math.min(1, 0.056 / (len || 1));
+    d.a.goal = tx * k; d.b.goal = tz * k;
+    const sx = g.start.x; const sz = g.start.z;
+    const reach = 0.034 + len * 0.6;
+    const rlen = move || 1;
+    this.parts.push((p) => {
+      const ox = p.base.x - sx; const oz = p.base.z - sz;
+      const w = Math.exp(-(ox * ox + oz * oz) / (reach * reach));
+      if (w < 0.02 || move === 0) return null;
+      return { x: dx * w * 0.42, z: dz * w * 0.42, size: move * w * 0.3, dirX: dx / rlen, dirZ: dz / rlen };
+    });
+    this.parts.separate();
+    if (move > 0) {
+      this.pigment.advect({
+        smear: { x: sx * 0.72, z: sz * 0.72, dx: dx * 0.34, dz: dz * 0.34, size: reach },
+        curl: { x: sx * 0.6, z: sz * 0.6, amount: move * 0.035 },
+        swirls: this.ribbonSwirls({ x: sx, z: sz }, move),
+        diffuse: 0.004,
+      });
+      this.hearts({ x: sx, z: sz });
+    }
+  }
+  // While folding nothing is advected: surface, sheet and parts are all bent by the same map.
+  applyFold(g) {
+    const tx = g.now.x - g.start.x;
+    const tz = g.now.z - g.start.z;
+    g.d.a.goal = Math.max(0, Math.min(0.074, -(tx * g.n.x + tz * g.n.z)));
+    this.parts.awake = 1;
+  }
+  ribbonSwirls(c, move) {
+    if (move <= 0) return [];
+    return this.parts.near(new THREE.Vector3(c.x, 0.012, c.z), 0.04)
+      .filter((p) => p.type === 'RIBBON').slice(0, 6)
+      .map((p, i) => ({ x: p.base.x, z: p.base.z, spin: (i % 2 ? -1 : 1) * Math.min(0.7, move * 50) }));
+  }
+  // Hearts that are being moved leave a faint pink wake.
+  hearts(c) {
+    this.heartClock++;
+    if (this.heartClock % 6) return;
+    const near = this.parts.near(new THREE.Vector3(c.x, 0.012, c.z), 0.03).filter((p) => p.type === 'HEART').slice(0, 2);
+    for (const p of near) this.pigment.splat(p.base.x, p.base.z, 'PEACH', 0.05, 0.0042);
+  }
+  get busy() { return !!this.g || this.deform.active || !!this.comb; }
+  reset() {
+    this.g = null; this.comb = null; this.quiet = 0;
+    this.deform.reset();
+    this.pigment.clear();
+    this.pigment.mass = [0, 0, 0];
+    this.pigment.bend(this.deform);
+    this.parts.clear();
+  }
+}
