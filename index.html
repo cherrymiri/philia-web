@@ -18,12 +18,11 @@
     <button id="handbtn" type="button">손 인식 켜기</button>
   </div>
   <div id="cam" hidden>
-    <div id="campreview"><video id="camvideo" muted playsinline></video><canvas id="camdots" width="320" height="240"></canvas><span id="camcount"></span></div>
+    <div id="campreview"><video id="camvideo" muted playsinline></video><canvas id="camdots" width="640" height="480"></canvas><span id="camcount"></span></div>
     <div id="camctl"><button id="camtoggle" type="button">카메라 숨기기</button><button id="handoff" type="button">손 인식 끄기</button></div>
   </div>
   <p id="handmsg" hidden role="status"></p>
-  <div id="handpointer" class="handptr" hidden></div>
-  <div id="handpointer2" class="handptr" hidden></div>
+  <canvas id="handlayer"></canvas>
   <div id="ending" hidden>
     <p id="endtitle">PHILIA</p>
     <div id="endtext">

@@ -29,6 +29,20 @@ export class MixEngine {
     this.contacts.set(id, { kind: 'press', edge, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0 });
     return true;
   }
+  // Light contact from part of a hand: a fingertip or the palm. It dents and carries what is
+  // under it, but never turns into a stretch or a fold.
+  touch(pt, id, { depth, radius }) {
+    const g = this.contacts.get(id);
+    if (g) {
+      g.now = { x: pt.x, z: pt.z };
+      g.depth = depth;
+      return true;
+    }
+    if (!this.volume.fits(pt.x, pt.z, 0.0005)) return false;
+    const d = this.deform.add('press', { x: pt.x, z: pt.z, R: radius });
+    this.contacts.set(id, { kind: 'touch', light: true, depth, radius, start: { ...pt }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0 });
+    return true;
+  }
   drag(pt, id = 'pointer') {
     const g = this.contacts.get(id);
     if (!g) return;
@@ -77,7 +91,7 @@ export class MixEngine {
       this.comb = { x: g.n.x * s0, z: g.n.z * s0, tx: -g.n.z, tz: g.n.x, left: 12, seed: g.seed };
       this.work += 0.5;
     }
-    if (g.kind !== 'fold') this.deform.remember(g.d);
+    if (g.kind !== 'fold' && !g.light) this.deform.remember(g.d);
     g.d.held = false;
     g.d.a.goal = 0;
     g.d.b.goal = 0;
@@ -120,9 +134,33 @@ export class MixEngine {
     g.last = { ...g.now };
     g.held += dt;
     this.work += move * 9;
-    if (g.kind === 'press') this.applyPress(g, dt, dx, dz, move);
+    if (g.kind === 'touch') this.applyTouch(g, dt, dx, dz, move);
+    else if (g.kind === 'press') this.applyPress(g, dt, dx, dz, move);
     else if (g.kind === 'stretch') this.applyStretch(g, dx, dz, move);
     else this.applyFold(g);
+  }
+  applyTouch(g, dt, dx, dz, move) {
+    const d = g.d;
+    if (!this.volume.fits(g.now.x, g.now.z, 0.0005)) { d.a.goal = 0; return; }
+    d.x += dx; d.z += dz;
+    d.a.goal = g.depth;
+    this.work += dt * 0.02 * (g.depth / 0.004);
+    if (move < 0.00015 && g.depth < 0.008) return;
+    const reach = g.radius * 1.5;
+    const c = { x: d.x, z: d.z };
+    const pushing = (g.depth / 0.0125) * dt * 0.006;
+    this.parts.push((p) => {
+      const ox = p.base.x - c.x; const oz = p.base.z - c.z;
+      const r = Math.hypot(ox, oz) || 1e-5;
+      const w = Math.exp(-(r * r) / (reach * reach));
+      if (w < 0.04) return null;
+      return { x: (ox / r) * pushing * w + dx * w * 0.3, z: (oz / r) * pushing * w + dz * w * 0.3, size: move * 0.2 * w, dirX: ox, dirZ: oz };
+    });
+    this.pigment.advect({
+      press: g.depth >= 0.008 ? { x: c.x, z: c.z, amount: 0.00012, petals: 5 } : null,
+      smear: move > 0 ? { x: c.x, z: c.z, dx: dx * 0.7, dz: dz * 0.7, size: g.radius, comb: 1 } : null,
+      diffuse: 0.002,
+    });
   }
   applyPress(g, dt, dx, dz, move) {
     const d = g.d;

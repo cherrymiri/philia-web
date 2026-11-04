@@ -37,8 +37,7 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 #camctl{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 #camctl button{font:500 12px "Pretendard",sans-serif;color:var(--fg);background:#000;border:1px solid var(--line);border-radius:6px;padding:5px 8px;cursor:pointer;white-space:nowrap}
 #handmsg{position:absolute;left:50%;transform:translateX(-50%);bottom:max(70px,calc(env(safe-area-inset-bottom,0px) + 70px));margin:0;width:max-content;max-width:calc(100vw - 32px);font-size:14px;color:var(--fg);text-align:center;word-break:keep-all}
-.handptr{position:absolute;left:-11px;top:-11px;width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(255,255,255,.75);background:rgba(255,255,255,.08);pointer-events:none;transition:background .12s}
-.handptr.pinching{background:rgba(255,255,255,.42);outline:5px solid rgba(255,255,255,.12)}
+#handlayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #ending{position:absolute;inset:0;pointer-events:none;animation:fade 1.2s ease}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 #endtitle{position:absolute;top:max(22px,env(safe-area-inset-top,0px));left:0;right:0;margin:0;text-align:center;font-size:15px;font-weight:600;letter-spacing:.34em;color:var(--fg)}

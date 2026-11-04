@@ -40,7 +40,7 @@ function press(d, p) {
   const dx = p.x - d.x;
   const dz = p.z - d.z;
   const r = Math.hypot(dx, dz) || 1e-6;
-  const R = 0.017;
+  const R = d.R || 0.017;
   const f = smooth(0.001, 0.016, p.y);        // the underside stays on the table
   const dent = Math.exp(-(r * r) / (R * R));
   const ring = Math.exp(-(((r - 2 * R) / (0.95 * R)) ** 2));
@@ -117,7 +117,7 @@ export class DeformEngine {
     this.neighbours = sets.map((s) => [...s]);
   }
   add(type, params) {
-    if (this.list.length >= 6) this.list.splice(this.list.findIndex((d) => !d.held), 1);
+    if (this.list.length >= 18) { const i = this.list.findIndex((d) => !d.held); if (i >= 0) this.list.splice(i, 1); }
     const d = new Deformer(type, params);
     this.list.push(d);
     return d;

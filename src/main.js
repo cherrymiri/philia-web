@@ -7,7 +7,7 @@ import { PigmentEngine } from './mix/pigment.js';
 import { PartEngine } from './mix/parts.js';
 import { MixEngine } from './mix/engine.js';
 import { attachPointer } from './input.js';
-import { HandInput } from './hand.js';
+import { HandInput, CONNECTIONS } from './hand.js';
 import { makeName } from './naming.js';
 import { renderStill, composeCard, saveCanvas } from './save.js';
 import * as store from './state.js';
@@ -732,9 +732,25 @@ function dressObjects(root) {
 function handUI() {
   const video = $('camvideo');
   const dots = $('camdots');
-  const pointers = { hand0: $('handpointer'), hand1: $('handpointer2') };
+  const layer = $('handlayer');
+  const lg = layer.getContext('2d');
+  const SHAPE_COLOR = { open: '255,255,255', pinch: '255,182,204', fist: '255,182,204', poke: '165,239,226' };
   const box = $('cam');
   const g = dots.getContext('2d');
+  const skeleton = (ctx, pt, rgb, alpha, width, dot, tip) => {
+    ctx.strokeStyle = `rgba(${rgb},${alpha})`;
+    ctx.fillStyle = `rgba(${rgb},${Math.min(1, alpha * 1.5)})`;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    for (const [a, b] of CONNECTIONS) { const [p, q] = [pt(a), pt(b)]; ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); }
+    ctx.stroke();
+    for (let i = 0; i < 21; i++) {
+      const p = pt(i);
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], [4, 8, 12, 16, 20].includes(i) ? tip : dot, 0, 7);
+      ctx.fill();
+    }
+  };
   let previewOn = true;
   const refresh = () => {
     const on = hand?.on;
@@ -751,25 +767,26 @@ function handUI() {
     status: (t) => { $('handmsg').textContent = t; $('handmsg').hidden = !t; },
     showPreview: () => setTimeout(refresh),
     previewVisible: () => previewOn,
-    pointer(id, p) {
-      const pointerEl = pointers[id];
-      if (!p) { pointerEl.hidden = true; return; }
-      pointerEl.hidden = false;
-      pointerEl.classList.toggle('pinching', p.pinching);
-      pointerEl.style.transform = `translate(${(p.x * 0.5 + 0.5) * app.clientWidth}px, ${(-p.y * 0.5 + 0.5) * app.clientHeight}px)`;
+    // Whole hand on the main view, faint enough to leave the gel readable.
+    overlay(hands) {
+      const w = app.clientWidth; const h = app.clientHeight;
+      const ratio = Math.min(devicePixelRatio, 2);
+      if (layer.width !== Math.round(w * ratio)) { layer.width = Math.round(w * ratio); layer.height = Math.round(h * ratio); }
+      lg.setTransform(ratio, 0, 0, ratio, 0, 0);
+      lg.clearRect(0, 0, w, h);
+      for (const hd of hands) {
+        const pt = (i) => [(hd.pts[i].x * 0.5 + 0.5) * w, (-hd.pts[i].y * 0.5 + 0.5) * h];
+        skeleton(lg, pt, SHAPE_COLOR[hd.shape], hd.shape === 'open' ? 0.3 : 0.5, 1.5, 2, 4);
+      }
     },
     drawHands(hands) {
       g.clearRect(0, 0, dots.width, dots.height);
+      $('camcount').textContent = hands.length > 1 ? '두 손 인식 중' : hands.length ? '손 인식 중' : '손을 보여 주세요';
       if (!previewOn) return;
-      $('camcount').textContent = hands.length ? `손 ${hands.length}개 인식` : '손을 보여 주세요';
-      hands.forEach((lm, n) => {
-        g.fillStyle = n ? '#9fd6f5' : '#ffb6cc';
-        for (const i of [4, 8]) {
-          g.beginPath();
-          g.arc((1 - lm[i].x) * dots.width, lm[i].y * dots.height, 5, 0, 7);
-          g.fill();
-        }
-      });
+      for (const hd of hands) {
+        const pt = (i) => [(1 - hd.lm[i].x) * dots.width, hd.lm[i].y * dots.height];
+        skeleton(g, pt, SHAPE_COLOR[hd.shape], 0.75, 2, 3.5, 6);
+      }
     },
   };
 }
