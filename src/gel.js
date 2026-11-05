@@ -26,7 +26,7 @@ export function edgeLight(mesh, { strength, power, tinted }) {
   return m;
 }
 
-export const GEL_REST = '#ffe0ea';  // clear with a blush of pink, as in the reference
+export const GEL_REST = '#ffffff';  // perfectly clear until pigment goes in
 
 export function applyGel(slime, env) {
   const gel = slime.material;
@@ -65,10 +65,10 @@ export function applyGel(slime, env) {
         float v = mix(center, rim, f) * mix(1.0, floorFade, vDown);
         float e = smoothstep(0.55, 0.98, vE);
         float threads = caustic(vR*95.0) * (0.35 + 0.65*e) + 0.6*caustic(vR*160.0 + 7.0)*e;
-        vec3 pale = mix(vec3(1.0, 0.80, 0.88), vec3(0.92, 0.84, 1.0), noise(vR*60.0));
+        vec3 edgeTone = vec3(1.0);
         vec3 c = vec3(v) * vec3(1.0, 0.97, 1.05)
-          + pale * (0.2 + 0.18*e + 0.05*threads) * mix(0.5, 1.0, vDown)
-          + pale * ring * e;
+          + edgeTone * (0.02 + 0.13*e*e + 0.03*threads*e) * mix(0.5, 1.0, vDown)
+          + edgeTone * ring * e;
         // the colour the gel has soaked up lights its whole body
         c = mix(c, c*(tintColor*1.1+0.15), min(1.0, tintAmt*1.1));
         c += tintColor * tintAmt * (0.16 + 0.3*vDown + 0.42*f);
