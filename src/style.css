@@ -69,8 +69,8 @@ canvas{touch-action:none}
 .intro{margin:8px auto 0;padding-inline:16px;max-width:560px;font-weight:300;font-size:clamp(12px,1vw,13.5px);letter-spacing:.02em;color:var(--dim);word-break:keep-all}
 .mixing #title{opacity:0}
 #corner{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));display:flex;gap:6px}
-#reset,#soundbtn{position:static;font:400 12.5px "Pretendard",sans-serif;color:var(--dim);background:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;white-space:nowrap}
-#reset:hover,#soundbtn:hover{color:var(--fg);border-color:var(--dim)}
+#reset{position:static;font:400 12.5px "Pretendard",sans-serif;color:var(--dim);background:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+#reset:hover{color:var(--fg);border-color:var(--dim)}
 .label b{font-weight:500;letter-spacing:.02em}
 .label span{font-weight:300;letter-spacing:.01em}
 .portrait #corner{bottom:auto;top:max(10px,env(safe-area-inset-top,0px));left:10px}

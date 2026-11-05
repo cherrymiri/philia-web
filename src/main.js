@@ -11,7 +11,6 @@ import { HandInput, CONNECTIONS } from './hand.js';
 import { makeName } from './naming.js';
 import { renderStill, composeCard, saveCanvas } from './save.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
-import { GelSound } from './sound.js';
 import { refine } from './finish.js';
 import * as store from './state.js';
 import { animate, wait, ease, stepTweens } from './tween.js';
@@ -132,7 +131,6 @@ let slime, volume, inside, ripples, portrait = false;
 let deform, pigment, partEngine, mix;
 let mode = 'add';              // add | mix | ending | moving
 let stage, hand;
-const sound = new GelSound();
 let swayTime = 0;
 const pending = new Set();     // falling parts/drops still animating
 
@@ -665,10 +663,6 @@ async function setMode(next) {
   if (next === 'ending') showEnding();
   else if (hand?.on && next !== 'mix') hand.stop();
 }
-const soundBtn = $('soundbtn');
-const showSound = () => { soundBtn.textContent = sound.muted ? '소리 켜기' : '소리 끄기'; };
-showSound();
-soundBtn.addEventListener('click', () => { sound.setMuted(!sound.muted); showSound(); });
 $('mixbtn').addEventListener('click', () => { if (!working) setMode('mix'); });
 $('addbtn').addEventListener('click', () => { if (!mix.busy) setMode('add'); });
 $('donebtn').addEventListener('click', () => { if (!mix.busy) { hand?.stop(); setMode('ending'); } });
@@ -933,7 +927,7 @@ function setupInner(gltf) {
   pigment = new PigmentEngine(renderer, inside, volume, app.clientWidth < 700 ? 340 : 512);
   partEngine = new PartEngine(layers, volume, PART);
   mix = new MixEngine({
-    deform, pigment, parts: partEngine, volume, sound,
+    deform, pigment, parts: partEngine, volume,
     onCommit: () => { store.setWork(mix.work); scheduleSave(); },
   });
   attachPointer({ canvas, camera, engine: mix, enabled: () => mode === 'mix' });
@@ -954,7 +948,7 @@ function setupInner(gltf) {
   if (plastic) { deform.restore(plastic); pigment.bend(deform); }
   syncButtons();
   window.PHILIA = {
-    ready: true, sound, scene, camera, items, select, finishDropper, resetAll,
+    ready: true, scene, camera, items, select, finishDropper, resetAll,
     state: store.snapshot, summary: store.summary, volume, layers, setMode, makeName, tint, get hand() { return hand; }, get mode() { return mode; }, get mix() { return mix; },
     get pigment() { return pigment; }, get parts() { return partEngine; }, get deform() { return deform; },
     THREE, slime, idle: () => !working && !queue.length && !pending.size,
