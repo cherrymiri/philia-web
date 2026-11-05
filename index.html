@@ -25,6 +25,14 @@
   <div id="cam" hidden>
     <div id="campreview"><video id="camvideo" muted playsinline></video><canvas id="camdots" width="640" height="480"></canvas><span id="camcount"></span></div>
     <div id="camctl"><button id="camtoggle" type="button">카메라 숨기기</button><button id="handoff" type="button">손 인식 끄기</button></div>
+    <dl id="handhelp">
+      <div><dt>한 손가락</dt><dd>콕 눌러 끌기</dd></div>
+      <div><dt>주먹</dt><dd>지그시 누르기</dd></div>
+      <div><dt>손바닥</dt><dd>부드럽게 쓸기</dd></div>
+      <div><dt>엄지+검지</dt><dd>집어서 끌기</dd></div>
+      <div><dt>가장자리</dt><dd>밖으로 늘리고, 안으로 접기</dd></div>
+      <div><dt>양손</dt><dd>동시에 잡아 늘리기</dd></div>
+    </dl>
   </div>
   <p id="handmsg" hidden role="status"></p>
   <canvas id="handlayer"></canvas>
