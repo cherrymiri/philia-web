@@ -11,7 +11,7 @@ import { HandInput, CONNECTIONS } from './hand.js';
 import { makeName } from './naming.js';
 import { renderStill, composeCard, saveCanvas } from './save.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
-import { GelSound, RECIPES } from './sound.js';
+import { GelSound } from './sound.js';
 import { refine } from './finish.js';
 import * as store from './state.js';
 import { animate, wait, ease, stepTweens } from './tween.js';
@@ -954,7 +954,7 @@ function setupInner(gltf) {
   if (plastic) { deform.restore(plastic); pigment.bend(deform); }
   syncButtons();
   window.PHILIA = {
-    ready: true, sound, soundRecipes: RECIPES, scene, camera, items, select, finishDropper, resetAll,
+    ready: true, sound, scene, camera, items, select, finishDropper, resetAll,
     state: store.snapshot, summary: store.summary, volume, layers, setMode, makeName, tint, get hand() { return hand; }, get mode() { return mode; }, get mix() { return mix; },
     get pigment() { return pigment; }, get parts() { return partEngine; }, get deform() { return deform; },
     THREE, slime, idle: () => !working && !queue.length && !pending.size,

@@ -1,60 +1,89 @@
-// Gel sounds. Everything here is generated in the browser with Web Audio: no audio files, samples
-// or sound libraries, and no noise of any kind, because a stream of filtered noise is what reads as
-// waves. Every sound is a handful of very short decaying sine pops with silence between them.
+// Gel sounds, generated entirely in this file: no recordings, audio files or sound libraries.
+// A small bank of varied sounds is computed when audio starts. Each one models what happens in
+// slime: a few irregular air pulses pushed through a soft cavity whose resonance sweeps as the gel
+// deforms. Low, rounded and damped, so it reads as squishing rather than a click, and made of
+// separate short events, so it never runs together into a wash.
 const KEY = 'philia.sound';
-const LEVEL = 0.55;
+const LEVEL = 0.6;
 const MAX_VOICES = 6;      // two hands together can't stack up into something loud
-const MIN_GAP = 0.055;     // seconds of space between events: separate pops, never a stream
+const MIN_GAP = 0.07;      // seconds between events
 
-const vary = (v, amount) => v * (1 + (Math.random() * 2 - 1) * amount);
-const between = (a, b) => a + Math.random() * (b - a);
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
-function pop(c, out, t, { from, to, dur, gain }) {
-  const o = c.createOscillator();
-  const g = c.createGain();
-  o.frequency.setValueAtTime(from, t);
-  o.frequency.exponentialRampToValueAtTime(to, t + dur);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(gain, t + 0.0012);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(out);
-  o.start(t);
-  o.stop(t + dur + 0.004);
+// Resonant filter whose frequency moves over time.
+function resonate(x, sr, freqAt, q) {
+  const y = new Float32Array(x.length);
+  let low = 0; let band = 0;
+  for (let i = 0; i < x.length; i++) {
+    const f = 2 * Math.sin(Math.PI * Math.min(freqAt(i / x.length), sr / 6) / sr);
+    low += f * band;
+    const high = x[i] - low - band / q;
+    band += f * high;
+    y[i] = band;
+  }
+  return y;
 }
-
-// One recipe for each kind of touch. `k` is 0..1 strength.
-export const RECIPES = {
-  press(c, out, t, k) {                 // soft compressed "bbok"
-    pop(c, out, t, { from: vary(280, 0.1), to: vary(130, 0.1), dur: 0.06, gain: 0.5 + 0.18 * k });
-    pop(c, out, t + vary(0.034, 0.2), { from: vary(520, 0.15), to: vary(900, 0.15), dur: 0.022, gain: 0.3 });
-    return 0.09;
-  },
-  bubble(c, out, t, k) {                // one small air pocket closing
-    const f = between(480, 1050);
-    pop(c, out, t, { from: f, to: f * between(1.4, 1.9), dur: between(0.014, 0.026), gain: 0.2 + 0.2 * k });
-    return 0.03;
-  },
-  stick(c, out, t, k) {                 // two tiny clicks: gel sticking, then letting go
-    const f = between(800, 1500);
-    pop(c, out, t, { from: f, to: f * 0.8, dur: between(0.007, 0.011), gain: 0.2 + 0.14 * k });
-    pop(c, out, t + between(0.012, 0.03), { from: f * 1.25, to: f * 1.7, dur: between(0.01, 0.016), gain: 0.24 + 0.16 * k });
-    return 0.05;
-  },
-  fold(c, out, t, k) {                  // a run of little pops, tighter when folded fast
-    pop(c, out, t, { from: vary(280, 0.1), to: vary(135, 0.1), dur: 0.065, gain: 0.46 });
-    const count = 4 + Math.round(3 * k + Math.random() * 2);
-    let at = t + 0.05;
+function squelch(sr, { dur, from, to, q, count, attack = 0.005 }) {
+  const n = Math.floor(dur * sr);
+  const x = new Float32Array(n);
+  let at = 0.002;
+  for (let p = 0; p < count; p++) {         // uneven soft pulses of air
+    const w = Math.floor(rand(0.001, 0.0028) * sr);
+    const start = Math.floor(at * sr);
+    const amp = rand(0.5, 1);
+    for (let i = 0; i < w && start + i < n; i++) x[start + i] += amp * Math.sin(Math.PI * i / w);
+    at += (dur * 0.8 / count) * rand(0.45, 1.55);
+  }
+  const sweep = (t) => from * (to / from) ** t;
+  const a = resonate(x, sr, sweep, q);
+  const b = resonate(x, sr, (t) => sweep(t) * 2.3, q * 0.7);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / n;
+    const env = Math.min(1, i / (attack * sr)) ** 2 * (1 - t) ** 1.4;
+    out[i] = Math.tanh((a[i] + b[i] * 0.3) * 40) * env;
+  }
+  return out;
+}
+function mix(sr, seconds, parts) {
+  const out = new Float32Array(Math.floor(seconds * sr));
+  for (const [at, sound, gain] of parts) {
+    const o = Math.floor(at * sr);
+    for (let i = 0; i < sound.length && o + i < out.length; i++) out[o + i] += sound[i] * gain;
+  }
+  let low = 0; let peak = 1e-6;
+  const k = 1 - Math.exp(-2 * Math.PI * 2400 / sr);   // nothing bright or sharp gets through
+  for (let i = 0; i < out.length; i++) { low += k * (out[i] - low); out[i] = low; peak = Math.max(peak, Math.abs(low)); }
+  for (let i = 0; i < out.length; i++) out[i] /= peak;
+  return out;
+}
+const air = (sr) => squelch(sr, { dur: rand(0.03, 0.06), from: rand(240, 420), to: rand(420, 760), q: 6, count: 1 });
+const MAKE = {
+  press: (sr) => mix(sr, 0.17, [
+    [0, squelch(sr, { dur: 0.11, from: rand(130, 165), to: rand(290, 360), q: 7, count: 1, attack: 0.008 }), 1],
+    [rand(0.03, 0.045), squelch(sr, { dur: 0.05, from: rand(280, 340), to: rand(480, 580), q: 5, count: 2 }), 0.5],
+  ]),
+  stretch: (sr) => mix(sr, 0.18, [[0, squelch(sr, { dur: rand(0.07, 0.16), from: rand(420, 600), to: rand(230, 320), q: 4.5, count: 3 + Math.floor(rand(1, 6)) }), 1]]),
+  knead: (sr) => mix(sr, 0.13, [[0, squelch(sr, { dur: rand(0.05, 0.11), from: rand(220, 380), to: rand(340, 620), q: 5, count: 2 + Math.floor(rand(0, 3)) }), 1]]),
+  fold: (sr) => {
+    const parts = [[0, squelch(sr, { dur: 0.12, from: rand(125, 155), to: rand(270, 330), q: 7, count: 1, attack: 0.008 }), 1]];
+    let at = 0.07;
+    const count = 5 + Math.floor(rand(0, 4));
     for (let i = 0; i < count; i++) {
-      RECIPES.bubble(c, out, at, 0.9 - 0.5 * i / count);
-      at += between(0.038, 0.1) * (1.25 - 0.5 * k);
+      parts.push([at, air(sr), 0.7 - 0.4 * i / count]);
+      at += rand(0.035, 0.09);
     }
-    return at - t + 0.03;
+    return mix(sr, at + 0.08, parts);
   },
-  release(c, out, t, k) {               // finger coming away
-    pop(c, out, t, { from: vary(420, 0.14), to: vary(760, 0.14), dur: 0.024, gain: 0.2 + 0.1 * k });
-    return 0.03;
-  },
+  release: (sr) => mix(sr, 0.08, [[0, squelch(sr, { dur: 0.06, from: rand(460, 560), to: rand(230, 290), q: 4, count: 3 }), 1]]),
 };
+export const VOLUME = { press: 0.5, stretch: 0.3, knead: 0.3, fold: 0.48, release: 0.2 };
+export function makeBank(sr) {
+  const bank = {};
+  for (const [name, make] of Object.entries(MAKE)) bank[name] = Array.from({ length: name === 'fold' ? 6 : 10 }, () => make(sr));
+  return bank;
+}
 
 export class GelSound {
   constructor() {
@@ -65,6 +94,7 @@ export class GelSound {
     this.voices = 0;
     this.travel = 0;        // distance moved since the last movement sound
     this.step = 0.012;
+    this.bank = null;
     this.speed = 0;
     this.stretching = 0;
     const unlock = () => this.start();
@@ -80,12 +110,16 @@ export class GelSound {
     this.master.gain.value = this.muted ? 0 : LEVEL;
     const soft = c.createBiquadFilter();   // takes the edge off anything high
     soft.type = 'lowpass';
-    soft.frequency.value = 3400;
+    soft.frequency.value = 2800;
     soft.Q.value = 0.5;
     const comp = c.createDynamicsCompressor();
     comp.threshold.value = -22;
     comp.ratio.value = 6;
     this.master.connect(soft).connect(comp).connect(c.destination);
+    this.bank = {};
+    for (const [name, sounds] of Object.entries(makeBank(c.sampleRate))) {
+      this.bank[name] = sounds.map((d) => { const b = c.createBuffer(1, d.length, c.sampleRate); b.copyToChannel(d, 0); return b; });
+    }
   }
   setMuted(on) {
     this.muted = on;
@@ -99,16 +133,19 @@ export class GelSound {
     if (this.voices >= MAX_VOICES) return;
     if (now < this.next && !urgent) return;
     const t = Math.max(now, this.next);
+    const src = this.ctx.createBufferSource();
     const out = this.ctx.createGain();
-    out.gain.value = vary(1, 0.12);
-    out.connect(this.master);
-    const length = RECIPES[name](this.ctx, out, t, k);
+    src.buffer = pick(this.bank[name]);
+    src.playbackRate.value = rand(0.93, 1.07);          // same sound never quite repeats
+    out.gain.value = VOLUME[name] * (0.7 + 0.45 * k) * rand(0.9, 1.1);
+    src.connect(out).connect(this.master);
+    src.start(t);
     this.next = t + MIN_GAP;
     this.voices += 1;
-    setTimeout(() => { this.voices -= 1; out.disconnect(); }, (t - now + length + 0.05) * 1000);
+    src.onended = () => { this.voices -= 1; out.disconnect(); };
   }
   press() { this.play('press', Math.min(1, this.speed * 300) * 0.5 + 0.3, true); }
-  stretch() { this.stretching += 1; this.play('stick', 0.6); }
+  stretch() { this.stretching += 1; this.play('stretch', 0.6); }
   fold() { this.play('fold', Math.min(1, this.speed * 260), true); }
   release() {
     this.stretching = Math.max(0, this.stretching - 1);
@@ -125,10 +162,10 @@ export class GelSound {
     const k = Math.min(1, move * 260);
     if (this.stretching) {
       this.step = Math.random() < 0.25 ? between(0.024, 0.04) : between(0.01, 0.018);
-      this.play('stick', k);
+      this.play('stretch', k);
     } else {
       this.step = Math.random() < 0.3 ? between(0.022, 0.04) : between(0.008, 0.018);
-      this.play(Math.random() < 0.72 ? 'bubble' : 'stick', k);
+      this.play('knead', k);
     }
   }
 }
