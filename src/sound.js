@@ -42,7 +42,7 @@ function squelch(sr, { dur, from, to, q, count, attack = 0.005 }) {
   for (let i = 0; i < n; i++) {
     const t = i / n;
     const env = Math.min(1, i / (attack * sr)) ** 2 * (1 - t) ** 1.4;
-    out[i] = Math.tanh((a[i] + b[i] * 0.3) * 40) * env;
+    out[i] = Math.tanh((a[i] + b[i] * 0.3) * 12) * env;
   }
   return out;
 }
@@ -53,30 +53,39 @@ function mix(sr, seconds, parts) {
     for (let i = 0; i < sound.length && o + i < out.length; i++) out[o + i] += sound[i] * gain;
   }
   let low = 0; let peak = 1e-6;
-  const k = 1 - Math.exp(-2 * Math.PI * 2400 / sr);   // nothing bright or sharp gets through
+  const k = 1 - Math.exp(-2 * Math.PI * 3000 / sr);   // nothing bright or sharp gets through
   for (let i = 0; i < out.length; i++) { low += k * (out[i] - low); out[i] = low; peak = Math.max(peak, Math.abs(low)); }
   for (let i = 0; i < out.length; i++) out[i] /= peak;
   return out;
 }
-const air = (sr) => squelch(sr, { dur: rand(0.03, 0.06), from: rand(240, 420), to: rand(420, 760), q: 6, count: 1 });
+// Only single pulses that sweep upward. Several pulses at a low pitch, or a falling sweep, turn
+// into a rude noise; below about 300 Hz nothing here sounds like slime.
+const micro = (sr, lo, hi) => {
+  const from = rand(lo, hi);
+  return squelch(sr, { dur: rand(0.02, 0.045), from, to: from * rand(1.3, 1.8), q: 5, count: 1, attack: 0.003 });
+};
+const cluster = (sr, n, lo, hi, gapLo, gapHi) => {
+  const parts = [];
+  let at = 0;
+  for (let i = 0; i < n; i++) { parts.push([at, micro(sr, lo, hi), 1 - 0.5 * i / n]); at += rand(gapLo, gapHi); }
+  return mix(sr, at + 0.06, parts);
+};
+const body = (sr) => squelch(sr, { dur: 0.07, from: rand(300, 360), to: rand(620, 760), q: 5, count: 1, attack: 0.006 });
 const MAKE = {
-  press: (sr) => mix(sr, 0.17, [
-    [0, squelch(sr, { dur: 0.11, from: rand(130, 165), to: rand(290, 360), q: 7, count: 1, attack: 0.008 }), 1],
-    [rand(0.03, 0.045), squelch(sr, { dur: 0.05, from: rand(280, 340), to: rand(480, 580), q: 5, count: 2 }), 0.5],
-  ]),
-  stretch: (sr) => mix(sr, 0.18, [[0, squelch(sr, { dur: rand(0.07, 0.16), from: rand(420, 600), to: rand(230, 320), q: 4.5, count: 3 + Math.floor(rand(1, 6)) }), 1]]),
-  knead: (sr) => mix(sr, 0.13, [[0, squelch(sr, { dur: rand(0.05, 0.11), from: rand(220, 380), to: rand(340, 620), q: 5, count: 2 + Math.floor(rand(0, 3)) }), 1]]),
+  press: (sr) => mix(sr, 0.13, [[0, body(sr), 1], [rand(0.028, 0.04), micro(sr, 600, 950), 0.55]]),
+  stretch: (sr) => cluster(sr, 3, 550, 1000, 0.02, 0.042),
+  knead: (sr) => cluster(sr, 2, 480, 900, 0.022, 0.05),
   fold: (sr) => {
-    const parts = [[0, squelch(sr, { dur: 0.12, from: rand(125, 155), to: rand(270, 330), q: 7, count: 1, attack: 0.008 }), 1]];
-    let at = 0.07;
+    const parts = [[0, body(sr), 1]];
+    let at = 0.06;
     const count = 5 + Math.floor(rand(0, 4));
     for (let i = 0; i < count; i++) {
-      parts.push([at, air(sr), 0.7 - 0.4 * i / count]);
-      at += rand(0.035, 0.09);
+      parts.push([at, micro(sr, 450, 1000), 0.75 - 0.4 * i / count]);
+      at += rand(0.035, 0.085);
     }
-    return mix(sr, at + 0.08, parts);
+    return mix(sr, at + 0.06, parts);
   },
-  release: (sr) => mix(sr, 0.08, [[0, squelch(sr, { dur: 0.06, from: rand(460, 560), to: rand(230, 290), q: 4, count: 3 }), 1]]),
+  release: (sr) => mix(sr, 0.06, [[0, micro(sr, 650, 1000), 1]]),
 };
 export const VOLUME = { press: 0.5, stretch: 0.3, knead: 0.3, fold: 0.48, release: 0.2 };
 export function makeBank(sr) {
