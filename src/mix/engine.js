@@ -111,7 +111,7 @@ export class MixEngine {
     for (const g of this.contacts.values()) this.applyGesture(g, dt);
     if (this.stirMove > 0) this.parts.stir(Math.min(1, this.stirMove * 200));
     this.sound?.motion(this.frameMove);
-    if (this.settle > 0) { this.settle -= 1; this.parts.stir(0.6); }
+    if (this.settle > 0) { this.settle -= 1; this.parts.stir(0.25); }
     if (this.comb) this.runComb();
     const live = this.deform.active;
     if (live) { this.deform.step(dt); this.pigment.bend(this.deform); }
