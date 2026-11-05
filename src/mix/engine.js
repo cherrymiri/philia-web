@@ -6,8 +6,8 @@ import { FOLD_HINGE } from './deform.js';
 const DRAG_START = 0.007;
 
 export class MixEngine {
-  constructor({ deform, pigment, parts, volume, onCommit }) {
-    Object.assign(this, { deform, pigment, parts, volume, onCommit });
+  constructor({ deform, pigment, parts, volume, sound, onCommit }) {
+    Object.assign(this, { deform, pigment, parts, volume, sound, onCommit, frameMove: 0 });
     this.contacts = new Map();   // one entry per finger, pointer or hand
     this.quiet = 0;
     this.heartClock = 0;
@@ -26,6 +26,7 @@ export class MixEngine {
     const edge = r > rim * 0.64;
     const d = this.deform.add('press', { x: inner, z: innerZ });
     d.a.goal = 0.008;
+    this.sound?.press();
     this.contacts.set(id, { kind: 'press', edge, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0 });
     return true;
   }
@@ -62,6 +63,7 @@ export class MixEngine {
     const g = this.contacts.get(id);
     g.d.held = false; g.d.a.goal = 0;
     const d = this.deform.add('stretch', { x: g.start.x, z: g.start.z });
+    this.sound?.stretch();
     Object.assign(g, { kind: 'stretch', d, seed: Math.random() * 40 });
   }
   fold(id = 'pointer') {
@@ -83,7 +85,9 @@ export class MixEngine {
     const folded = g.kind === 'fold' && g.d.a.v > 0.008;
     if (folded) {
       // Bake where this fold put things, then let only the shell unroll.
+      this.sound?.fold();
       this.parts.landFold(this.deform, g.d);
+      this.settle = 70;   // the fold's pile-up relaxes over the next second, never in one jump
       this.pigment.bakeSheet(g.d);
       g.d.detached = true;
       this.pigment.bend(this.deform);
@@ -95,13 +99,19 @@ export class MixEngine {
     g.d.held = false;
     g.d.a.goal = 0;
     g.d.b.goal = 0;
+    if (!g.light) this.sound?.release();
     this.quiet = 1;
     this.parts.awake = Math.max(this.parts.awake, 1);
   }
 
   /* ---------- per frame ---------- */
   step(dt) {
+    this.frameMove = 0;
+    this.stirMove = 0;
     for (const g of this.contacts.values()) this.applyGesture(g, dt);
+    if (this.stirMove > 0) this.parts.stir(Math.min(1, this.stirMove * 200));
+    this.sound?.motion(this.frameMove);
+    if (this.settle > 0) { this.settle -= 1; this.parts.stir(0.6); }
     if (this.comb) this.runComb();
     const live = this.deform.active;
     if (live) { this.deform.step(dt); this.pigment.bend(this.deform); }
@@ -131,6 +141,8 @@ export class MixEngine {
     const dx = g.now.x - g.last.x;
     const dz = g.now.z - g.last.z;
     const move = Math.hypot(dx, dz);
+    this.frameMove += move;
+    if (g.kind !== 'fold') this.stirMove += move;   // a fold carries parts along, it doesn't scatter them
     g.last = { ...g.now };
     g.held += dt;
     this.work += move * 9;

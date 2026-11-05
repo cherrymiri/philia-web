@@ -59,3 +59,22 @@ html,body{overscroll-behavior:none;touch-action:none;-webkit-user-select:none;us
 canvas{touch-action:none}
 #camcount{position:absolute;left:6px;bottom:4px;font-size:11px;color:var(--fg);text-shadow:0 0 3px #000}
 #cam.collapsed #camcount{display:none}
+
+#title{position:absolute;top:max(20px,env(safe-area-inset-top,0px));left:0;right:0;text-align:center;pointer-events:none;color:var(--fg);transition:opacity .5s}
+.title-row{display:flex;align-items:center;justify-content:center;gap:clamp(16px,2.6vw,36px)}
+.rule{width:clamp(36px,7vw,96px);height:1px;background:linear-gradient(90deg,transparent,rgba(246,243,247,.4))}
+.rule:last-child{background:linear-gradient(90deg,rgba(246,243,247,.4),transparent)}
+#title h1{margin:0;font-weight:300;font-size:clamp(24px,2.9vw,40px);letter-spacing:.32em;padding-left:.32em;line-height:1.1}
+.subtitle{margin:8px 0 0;font-weight:300;font-size:clamp(12px,1.05vw,14px);letter-spacing:.3em;padding-left:.3em;color:var(--dim)}
+.intro{margin:8px auto 0;padding-inline:16px;max-width:560px;font-weight:300;font-size:clamp(12px,1vw,13.5px);letter-spacing:.02em;color:var(--dim);word-break:keep-all}
+.mixing #title{opacity:0}
+#corner{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));display:flex;gap:6px}
+#reset,#soundbtn{position:static;font:400 12.5px "Pretendard",sans-serif;color:var(--dim);background:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+#reset:hover,#soundbtn:hover{color:var(--fg);border-color:var(--dim)}
+.label b{font-weight:500;letter-spacing:.02em}
+.label span{font-weight:300;letter-spacing:.01em}
+.portrait #corner{bottom:auto;top:max(10px,env(safe-area-inset-top,0px));left:10px}
+.portrait .intro{display:none}
+.portrait #title{top:max(46px,env(safe-area-inset-top,0px))}
+
+.label{text-shadow:0 0 6px #000,0 0 14px #000}

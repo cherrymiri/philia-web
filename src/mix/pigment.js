@@ -82,8 +82,8 @@ void main(){
   vec3 c = texture2D(map, vUv).rgb; float sum = c.r+c.g+c.b;
   vec3 h = texture2D(haze, vUv).rgb; float hs = h.r+h.g+h.b;
   // back to front: the gel's overall colour, soft clouds of soaked-in colour, then the threads
-  vec3 col = tintColor; float a = tintAmt * 0.15;
-  if (hs > 0.004) { float ca = (1.0 - exp(-hs*2.6)) * 0.34; col = mix(col, pigmentColour(h, hs), ca / max(ca + a*(1.0-ca), 1e-3)); a = ca + a*(1.0-ca); }
+  vec3 col = tintColor; float a = tintAmt * 0.26;
+  if (hs > 0.004) { float ca = (1.0 - exp(-hs*3.4)) * 0.5; col = mix(col, pigmentColour(h, hs), ca / max(ca + a*(1.0-ca), 1e-3)); a = ca + a*(1.0-ca); }
   if (sum > 0.012) {
     float la = (1.0 - exp(-sum*1.45)) * layer;
     vec3 lc = pigmentColour(c, sum);
@@ -309,14 +309,15 @@ export class PigmentEngine {
     const { PEACH: p, MINT: m, LAVENDER: l } = this.counts;
     const total = p + m + l;
     this.updateHaze();
-    tint.tintAmt.value = total ? (1 - Math.exp(-total / 5)) * (0.28 + 0.72 * (1 - Math.exp(-this.work / 2.5))) : 0;
-    if (!total) return;
+    tint.tintAmt.value = total ? (1 - Math.exp(-total / 3.5)) * (0.34 + 0.66 * (1 - Math.exp(-this.work / 1.6))) : 0;
+    if (!total) { tint.gel?.color.setRGB(1, 1, 1); return; }
     // light adds: three tones blend to a clear pastel and never to mud
     const c = new THREE.Color(0, 0, 0);
     const add = (hex, k) => { const t = new THREE.Color(hex); c.r += t.r * k; c.g += t.g * k; c.b += t.b * k; };
     add('#ff6f8c', p / total); add('#2fd6c6', m / total); add('#a56df5', l / total);
     const top = Math.max(c.r, c.g, c.b) || 1;
     tint.tintColor.value.setRGB(c.r / top, c.g / top, c.b / top);
+    tint.gel?.color.setRGB(1, 1, 1).lerp(tint.tintColor.value, tint.tintAmt.value * 0.45);
   }
   // The sheet bends with the gel.
   bend(deform) {

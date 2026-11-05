@@ -120,7 +120,16 @@ export class PartEngine {
       t.x = p.base.x; t.y = p.base.y; t.z = p.base.z; t.turn = 0;
       fold.apply(t, true);
       if (!t.turn) continue;
-      p.base.set(t.x, t.y, t.z);
+      // Rolled over: what was near the bottom of the flap now lies near the top, spread through
+      // the full depth instead of piling up under the surface.
+      const below = this.volume.at(t.x, t.z);
+      let y = t.y;
+      if (below) {
+        const from = this.volume.at(p.base.x, p.base.z);
+        const rel = from ? (p.base.y - from.bottom) / Math.max(from.top - from.bottom, 1e-4) : 0.5;
+        y = below.bottom + (1 - rel) * (below.top - below.bottom);
+      }
+      p.base.set(t.x, y, t.z);
       a1.set(t.nz, 0, -t.nx);
       if (p.type !== 'PEARL') p.q.premultiply(q1.setFromAxisAngle(a1, t.turn));
       this.clamp(p);
@@ -149,6 +158,33 @@ export class PartEngine {
       this.layers[p.type].set(p.slot, p.vis, q, p.cfg.scale);
     }
     return true;
+  }
+  // Working the gel evens things out: parts drift out of crowded spots and through the depth,
+  // a little at a time, so kneading really distributes them.
+  stir(amount) {
+    if (amount <= 0 || !this.list.length) return;
+    const cell = 0.012;
+    const grid = new Map();
+    const key = (i, j) => (i + 32) * 97 + j + 32;
+    for (const p of this.list) {
+      if (p.type === 'GLITTER') continue;
+      const k = key(Math.floor(p.base.x / cell), Math.floor(p.base.z / cell));
+      grid.set(k, (grid.get(k) || 0) + 1);
+    }
+    const at = (i, j) => grid.get(key(i, j)) || 0;
+    for (const p of this.list) {
+      const i = Math.floor(p.base.x / cell); const j = Math.floor(p.base.z / cell);
+      const gx = at(i + 1, j) - at(i - 1, j);
+      const gz = at(i, j + 1) - at(i, j - 1);
+      const crowd = at(i, j);
+      const rx = Math.random() - 0.5; const rz = Math.random() - 0.5;
+      const scale = p.type === 'GLITTER' ? 1.8 : 1;
+      p.base.x += (-gx * 0.00028 + rx * (0.00022 + crowd * 0.00016)) * amount * scale;
+      p.base.z += (-gz * 0.00028 + rz * (0.00022 + crowd * 0.00016)) * amount * scale;
+      p.base.y += (Math.random() - 0.5) * 0.0005 * amount * scale;
+      this.clamp(p);
+    }
+    this.awake = Math.max(this.awake, 0.5);
   }
   // Write lasting positions back to the record.
   commit() {

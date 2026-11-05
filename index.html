@@ -3,13 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>PHILIA 재료 담기</title>
+<title>PHILIA — 우정의 사랑</title>
 </head>
 <body>
 <div id="app">
   <canvas id="c" aria-label="투명 말랑이와 재료"></canvas>
   <div id="labels"></div>
-  <button id="reset" type="button">처음부터 다시</button>
+  <header id="title">
+    <div class="title-row"><span class="rule"></span><h1>PHILIA</h1><span class="rule"></span></div>
+    <p class="subtitle">우정의 사랑</p>
+    <p class="intro">함께 쌓아 온 시간의 조각을 직접 고르고, 섞고, 만지며 나만의 우정을 완성합니다.</p>
+  </header>
+  <div id="corner"><button id="reset" type="button">처음부터 다시</button><button id="soundbtn" type="button">소리 끄기</button></div>
   <div id="guide" hidden><b>이제 직접 섞어보세요.</b><span>재료는 언제든 더 추가할 수 있어요.</span></div>
   <button id="mixbtn" type="button">말랑이 섞기</button>
   <div id="mixbar" hidden>

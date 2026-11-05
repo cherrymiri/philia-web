@@ -32,11 +32,12 @@ export function applyGel(slime, env) {
   gel.attenuationDistance = Infinity;
   gel.emissive.setScalar(0);
   gel.color.setScalar(1);
-  gel.roughness = 0.09;
+  gel.roughness = 0.05;
   gel.specularIntensity = 0.85;
   gel.envMap = env;
-  gel.envMapIntensity = 1.1;
+  gel.envMapIntensity = 1.5;
   gel.depthWrite = false;
+  tint.gel = gel;
   slime.geometry = slime.geometry.clone(); // working copy, the loaded source stays as it is
 
   const body = new THREE.Mesh(slime.geometry, new THREE.ShaderMaterial({
@@ -45,20 +46,32 @@ export function applyGel(slime, env) {
       center: { value: GEL_BODY.center }, rim: { value: GEL_BODY.rim }, power: { value: GEL_BODY.power },
       floorFade: { value: GEL_BODY.floorFade }, ring: { value: GEL_BODY.ring }, ...tint,
     },
-    vertexShader: `attribute float _edge_weight; varying vec3 vN; varying vec3 vV; varying float vDown; varying float vE;
-      void main(){ vE = _edge_weight; vDown = smoothstep(0.35, 0.9, -normal.y); vec4 p = modelViewMatrix * vec4(position, 1.0);
+    vertexShader: `attribute float _edge_weight; attribute vec3 _rest_position; varying vec3 vN; varying vec3 vV; varying float vDown; varying float vE; varying vec2 vR;
+      void main(){ vE = _edge_weight; vR = _rest_position.xz; vDown = smoothstep(0.35, 0.9, -normal.y); vec4 p = modelViewMatrix * vec4(position, 1.0);
         vN = normalize(normalMatrix * normal); vV = normalize(-p.xyz); gl_Position = projectionMatrix * p; }`,
     fragmentShader: `uniform float center, rim, power, floorFade, ring, tintAmt; uniform vec3 tintColor;
-      varying vec3 vN; varying vec3 vV; varying float vDown; varying float vE;
+      varying vec3 vN; varying vec3 vV; varying float vDown; varying float vE; varying vec2 vR;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+        return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
+      // light bent by the gel gathers in thin bright threads on the table under it
+      float caustic(vec2 p){ float n = noise(p + 1.7*noise(p*0.6)); return pow(1.0 - abs(n*2.0-1.0), 9.0); }
       void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), power);
-        float v = mix(center, rim, f) * mix(1.0, floorFade, vDown) + ring * smoothstep(0.6, 0.97, vE);
-        // light collected inside the gel, and the colour it has taken on
-        vec3 c = vec3(v) * vec3(1.0, 0.97, 1.05) + tintColor * tintAmt * (0.05 + 0.13 * vDown + 0.26 * f);
+        float v = mix(center, rim, f) * mix(1.0, floorFade, vDown);
+        float e = smoothstep(0.55, 0.98, vE);
+        float threads = caustic(vR*95.0) * (0.35 + 0.65*e) + 0.6*caustic(vR*160.0 + 7.0)*e;
+        vec3 pale = mix(vec3(1.0, 0.80, 0.88), vec3(0.92, 0.84, 1.0), noise(vR*60.0));
+        vec3 c = vec3(v) * vec3(1.0, 0.97, 1.05)
+          + pale * (0.05 + 0.12*e + 0.13*threads) * mix(0.5, 1.0, vDown)
+          + pale * ring * e;
+        // the colour the gel has soaked up lights its whole body
+        c = mix(c, c*(tintColor*1.1+0.15), min(1.0, tintAmt*1.1));
+        c += tintColor * tintAmt * (0.16 + 0.3*vDown + 0.42*f);
         gl_FragColor = vec4(c, 1.0); }`,
   }));
   body.name = 'GEL_BODY';
   slime.add(body);
-  edgeLight(slime, { strength: 0.75, power: 3.4, tinted: true });
+  edgeLight(slime, { strength: 0.9, power: 3, tinted: true });
 }
 
 // Height field of the gel, slime-local. Lets parts land on the real surface and rest inside it.

@@ -10,6 +10,9 @@ import { attachPointer } from './input.js';
 import { HandInput, CONNECTIONS } from './hand.js';
 import { makeName } from './naming.js';
 import { renderStill, composeCard, saveCanvas } from './save.js';
+import { Reflector } from 'three/addons/objects/Reflector.js';
+import { GelSound } from './sound.js';
+import { refine } from './finish.js';
 import * as store from './state.js';
 import { animate, wait, ease, stepTweens } from './tween.js';
 import { applyGel, buildVolume, edgeLight, tint } from './gel.js';
@@ -20,6 +23,8 @@ const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.toneMapping = THREE.NeutralToneMapping;
 
+const LAYER_MAIN = 2;   // transmissive glass and gel, skipped in the floor mirror
+const LAYER_MIRROR = 1; // plain stand-ins for them
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
 
@@ -43,9 +48,11 @@ function studioEnvironment() {
     m.lookAt(0, 0, 0);
     s.add(m);
   };
-  panel(12, 8, [0, 7, 1], 4.5);
-  panel(2.4, 12, [-8, 2.4, 2.5], 12);
-  panel(1.8, 12, [8, 2, 1], 9);
+  panel(12, 8, [0, 7, 1], 6);
+  panel(3, 12, [-8, 2.4, 3], 15);
+  panel(2.2, 12, [8, 2, 2], 12);
+  panel(5, 1.2, [3, 5.5, 6], 9);
+  panel(3, 1, [-4, 4.5, 6.5], 7, 0xffe7f2);
   panel(11, 3, [0, 1.4, -8], 6, 0xffd9ec);
   panel(9, 2.4, [-3, 0.6, 8], 3.2, 0xd9e4ff);
   const pm = new THREE.PMREMGenerator(renderer);
@@ -55,7 +62,7 @@ function studioEnvironment() {
 }
 const studio = studioEnvironment();
 scene.environment = studio;
-scene.environmentIntensity = 0.62;
+scene.environmentIntensity = 0.85;
 const key = new THREE.DirectionalLight(0xfff6f0, 1.05);
 key.position.set(-0.16, 0.34, 0.24);
 scene.add(key);
@@ -66,6 +73,48 @@ const rimR = new THREE.DirectionalLight(0xffdcea, 0.6);
 rimR.position.set(0.32, 0.14, -0.26);
 scene.add(rimR);
 const camera = new THREE.PerspectiveCamera(24, 1, 0.02, 8);
+camera.layers.enable(LAYER_MAIN);
+
+// Polished black floor. Mirrors the objects so they stand on something. Costs a second render,
+// so phones and ?q=low skip it.
+const lowQuality = innerWidth < 700 || new URLSearchParams(location.search).get('q') === 'low';
+const mirror = { dirty: true };
+function addFloor() {
+  if (lowQuality) return;
+  const floor = new Reflector(new THREE.PlaneGeometry(1.6, 1.6), {
+    textureWidth: 1024, textureHeight: 1024, clipBias: 0.0005, multisample: 4,
+    shader: {
+      name: 'PhiliaFloor',
+      uniforms: { color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null } },
+      vertexShader: `uniform mat4 textureMatrix; varying vec4 vUv; varying vec3 vW;
+        void main(){ vUv = textureMatrix * vec4(position, 1.0); vW = (modelMatrix * vec4(position, 1.0)).xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform sampler2D tDiffuse; varying vec4 vUv; varying vec3 vW;
+        void main(){ vec2 uv = vUv.xy / vUv.w; vec3 c = vec3(0.0); float w = 0.0;
+          for (int i = -3; i <= 3; i++) { float k = 1.0 - abs(float(i)) / 4.0; float s = float(i) * 0.0016;
+            c += texture2D(tDiffuse, uv + vec2(s * 0.5, s * 1.6)).rgb * k; w += k; }
+          // reflections die away a short step from each object, as on honed stone
+          float row = mix(-0.15, -0.09, smoothstep(0.1, 0.22, abs(vW.x)));
+          float k = exp(-max(vW.z - row, 0.0) * mix(16.0, 26.0, smoothstep(0.1, 0.2, abs(vW.x))));
+          float gelSide = exp(-pow(length((vW.xz - vec2(0.0, 0.1)) * vec2(0.8, 1.6)) / 0.1, 4.0));
+          float glow = 0.0035 * exp(-dot(vW.xz, vW.xz) * 9.0);
+          gl_FragColor = vec4(c / w * 0.5 * max(k, gelSide * 0.6) + vec3(glow, glow * 0.92, glow * 1.06), 1.0);
+          #include <colorspace_fragment>
+        }`,
+    },
+  });
+  floor.rotation.x = -Math.PI / 2;
+  floor.name = 'STAGE_FLOOR';
+  floor.camera.layers.enable(LAYER_MIRROR);
+  const render = floor.onBeforeRender;
+  floor.onBeforeRender = function once(r, sc, cam) {   // the transmission pass would trigger it again
+    if (!mirror.dirty) return;
+    mirror.dirty = false;
+    render.call(this, r, sc, cam);
+  };
+  scene.add(floor);
+}
+addFloor();
 
 const items = new Map();       // id -> { def, node, home, proxy, label, busy }
 const layers = {};             // part type -> PartLayer
@@ -75,15 +124,16 @@ let slime, volume, inside, ripples, portrait = false;
 let deform, pigment, partEngine, mix;
 let mode = 'add';              // add | mix | ending | moving
 let stage, hand;
+const sound = new GelSound();
 let swayTime = 0;
 const pending = new Set();     // falling parts/drops still animating
 
 /* ---------- layout ---------- */
 function wideSlots() {
   return [
-    [-0.196, 0.018], [-0.152, -0.03], [-0.112, -0.082],                  // serums, left
-    [-0.058, -0.118], [-0.008, -0.13], [0.043, -0.13], [0.094, -0.118],   // cups, behind
-    [0.143, -0.094], [0.184, -0.058], [0.199, 0.036],                      // cups, right
+    [-0.206, -0.092], [-0.168, -0.112], [-0.131, -0.13],                  // serums, left
+    [-0.083, -0.155], [-0.036, -0.162], [0.011, -0.164], [0.058, -0.162],  // cups, a calm row behind
+    [0.104, -0.157], [0.149, -0.148], [0.192, -0.136],                    // and curving in on the right
   ];
 }
 function portraitSlots() {
@@ -262,7 +312,7 @@ async function pour(it) {
   setMovingGlass(node, true);
 
   const a = rand(0, 6.283);
-  const c = 0.03 * Math.sqrt(Math.random());
+  const c = 0.036 * Math.sqrt(Math.random());
   const cx = c * Math.cos(a);
   const cz = c * Math.sin(a) * 0.9;
   const th = POUR.tilt;
@@ -292,7 +342,7 @@ async function pour(it) {
     // rim lowest point, cup is tilted to the right
     node.updateMatrixWorld();
     rimWorld.set(CUP_R, CUP_H, rand(-0.008, 0.008)).applyMatrix4(node.matrixWorld);
-    const spot = findSpot(type, cx, cz, glitter ? cfg.spread : 0.021);
+    const spot = findSpot(type, cx, cz, glitter ? cfg.spread : 0.025);
     if (!spot) continue;
     const q = restRotation(type);
     landing.push(spot);
@@ -607,6 +657,10 @@ async function setMode(next) {
   if (next === 'ending') showEnding();
   else if (hand?.on && next !== 'mix') hand.stop();
 }
+const soundBtn = $('soundbtn');
+const showSound = () => { soundBtn.textContent = sound.muted ? '소리 켜기' : '소리 끄기'; };
+showSound();
+soundBtn.addEventListener('click', () => { sound.setMuted(!sound.muted); showSound(); });
 $('mixbtn').addEventListener('click', () => { if (!working) setMode('mix'); });
 $('addbtn').addEventListener('click', () => { if (!mix.busy) setMode('add'); });
 $('donebtn').addEventListener('click', () => { if (!mix.busy) { hand?.stop(); setMode('ending'); } });
@@ -708,10 +762,14 @@ function dressObjects(root) {
     if (o.isMesh && /^MAT_PIGMENT_/.test(o.material?.name)) {
       // liquid holding a little light: readable on black, not self-lit neon
       const m = o.material;
-      m.opacity = 0.6;
-      m.roughness = 0.03;
+      const clear = { MAT_PIGMENT_PEACH: '#ff8fa8', MAT_PIGMENT_MINT: '#4fdccd', MAT_PIGMENT_LAVENDER: '#b98cf8' }[m.name];
+      if (clear && !m.userData.clear) { m.color.set(clear); m.userData.clear = true; }
+      m.opacity = 0.46;
+      m.roughness = 0.02;
+      m.envMap = studio;
+      m.envMapIntensity = 1.4;
       m.emissive.copy(m.color);
-      m.emissiveIntensity = 0.32;
+      m.emissiveIntensity = 0.3;
     }
   });
   root.traverse((o) => {
@@ -719,13 +777,22 @@ function dressObjects(root) {
     if (o.isMesh && o.material?.name === 'MAT_RUBBER_IVORY') { o.material.envMap = studio; o.material.envMapIntensity = 1.8; }
   });
   for (const m of new Set(glass.map((g) => g.material))) {
-    m.roughness = 0.015;
+    m.roughness = 0.012;
     m.specularIntensity = 1;
-    m.envMapIntensity = 1;
+    m.envMap = studio;
+    m.envMapIntensity = 1.7;
+    m.ior = 1.52;
+    m.thickness = /PIPETTE/.test(m.name) ? 0.001 : 0.0032;
   }
   for (const g of glass) {
     const pipette = /PIPETTE/.test(g.material.name);
-    edgeLight(g, { strength: pipette ? 0.3 : g.name.startsWith('SERUM') ? 0.62 : 0.5, power: pipette ? 2.6 : 3.2 });
+    edgeLight(g, { strength: pipette ? 0.34 : g.name.startsWith('SERUM') ? 0.8 : 0.72, power: pipette ? 2.6 : 2.7 });
+    // the mirror render skips transmission, it gets a plain pane instead
+    g.layers.set(LAYER_MAIN);
+    const pane = new THREE.Mesh(g.geometry, new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.12, roughness: 0.05, metalness: 0, envMap: studio, depthWrite: false }));
+    pane.layers.set(LAYER_MIRROR);
+    pane.name = 'GLASS_IN_MIRROR';
+    g.add(pane);
   }
 }
 
@@ -792,6 +859,10 @@ function handUI() {
 }
 
 function setup(gltf) {
+  setupInner(gltf);
+  refine({ root: gltf.scene, studio, subdivideFills: !lowQuality });
+}
+function setupInner(gltf) {
   const root = gltf.scene;
   scene.add(root);
   root.getObjectByName('MASTERS').visible = false;
@@ -800,8 +871,8 @@ function setup(gltf) {
   stage = new THREE.Group();     // gel and contents turn together at the end
   scene.add(stage);
   stage.add(slime);
-  slime.getObjectByName('SLIME_BUBBLES').visible = false;
   applyGel(slime, studio);
+  slime.layers.set(LAYER_MAIN);
   volume = buildVolume(slime.geometry);
   inside = new THREE.Group();
   inside.name = 'MIX_CONTENTS';
@@ -854,7 +925,7 @@ function setup(gltf) {
   pigment = new PigmentEngine(renderer, inside, volume, app.clientWidth < 700 ? 340 : 512);
   partEngine = new PartEngine(layers, volume, PART);
   mix = new MixEngine({
-    deform, pigment, parts: partEngine, volume,
+    deform, pigment, parts: partEngine, volume, sound,
     onCommit: () => { store.setWork(mix.work); scheduleSave(); },
   });
   attachPointer({ canvas, camera, engine: mix, enabled: () => mode === 'mix' });
@@ -921,6 +992,7 @@ renderer.setAnimationLoop(() => {
     d.position.z += (dropMode.goal.z - d.position.z) * k;
   }
   const t0 = performance.now();
+  mirror.dirty = true;
   if (query.has('norender')) scene.updateMatrixWorld(); else renderer.render(scene, camera);
   window.PHILIA_FRAME_MS = performance.now() - t0;
 });
