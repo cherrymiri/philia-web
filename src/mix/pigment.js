@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { tint } from '../gel.js';
+import { tint, GEL_REST } from '../gel.js';
 
 // Pigment field: one texture over the gel, R/G/B = how much peach/mint/lavender is at each spot.
 // Only user gestures and drops change it, so every result depends on what the visitor did.
@@ -310,14 +310,14 @@ export class PigmentEngine {
     const total = p + m + l;
     this.updateHaze();
     tint.tintAmt.value = total ? (1 - Math.exp(-total / 3.5)) * (0.34 + 0.66 * (1 - Math.exp(-this.work / 1.6))) : 0;
-    if (!total) { tint.gel?.color.setRGB(1, 1, 1); return; }
+    if (!total) { tint.gel?.color.set(GEL_REST); return; }
     // light adds: three tones blend to a clear pastel and never to mud
     const c = new THREE.Color(0, 0, 0);
     const add = (hex, k) => { const t = new THREE.Color(hex); c.r += t.r * k; c.g += t.g * k; c.b += t.b * k; };
     add('#ff6f8c', p / total); add('#2fd6c6', m / total); add('#a56df5', l / total);
     const top = Math.max(c.r, c.g, c.b) || 1;
     tint.tintColor.value.setRGB(c.r / top, c.g / top, c.b / top);
-    tint.gel?.color.setRGB(1, 1, 1).lerp(tint.tintColor.value, tint.tintAmt.value * 0.45);
+    tint.gel?.color.set(GEL_REST).lerp(tint.tintColor.value, tint.tintAmt.value * 0.45);
   }
   // The sheet bends with the gel.
   bend(deform) {
