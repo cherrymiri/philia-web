@@ -48,7 +48,7 @@ function resin(m, edge) {
   m.onBeforeCompile = (s) => {
     s.fragmentShader = s.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       { float fr = pow(1.0 - saturate(dot(normalize(vViewPosition), normal)), 2.1);
-        totalEmissiveRadiance += diffuseColor.rgb * (fr * ${edge.toFixed(2)} + 0.1); }`);
+        totalEmissiveRadiance += diffuseColor.rgb * (fr * ${edge.toFixed(2)} + 0.04); }`);
   };
   m.needsUpdate = true;
 }
@@ -74,7 +74,7 @@ export function refine({ root, studio, subdivideFills }) {
     if (sheenColor) m.sheenColor.set(sheenColor);
     Object.assign(m, rest);
     m.envMap = studio;
-    m.envMapIntensity = env;
+    m.envMapIntensity = env * (m.metalness > 0.5 ? 0.8 : 0.5);
     resin(m, edge);
   });
   if (!subdivideFills) return;

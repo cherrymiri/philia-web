@@ -30,7 +30,7 @@ scene.background = new THREE.Color(0x000000);
 
 // Studio on black: a large soft box above, thin strips at the sides, two faint coloured kickers
 // behind. Glass on black only shows what it reflects, so this is what draws its edges.
-function studioEnvironment() {
+function studioEnvironment(forGel = false) {
   const s = new THREE.Scene();
   const c = document.createElement('canvas');
   c.width = c.height = 128;
@@ -48,7 +48,13 @@ function studioEnvironment() {
     m.lookAt(0, 0, 0);
     s.add(m);
   };
-  panel(12, 8, [0, 7, 1], 6);
+  // A broad overhead light would mirror in the gel's flat top as a grey disc. It gets two small
+  // soft boxes instead, which read as the highlights on a clear drop.
+  if (forGel) {
+    panel(2.6, 1.3, [-1.6, 7, 2.2], 26, 0xfff0f6);
+    panel(1.6, 1, [2.2, 7, 3], 22, 0xf2ecff);
+    panel(9, 2, [0, 3, 8], 3, 0xffd6e6);
+  } else panel(12, 8, [0, 7, 1], 6);
   panel(3, 12, [-8, 2.4, 3], 15);
   panel(2.2, 12, [8, 2, 2], 12);
   panel(5, 1.2, [3, 5.5, 6], 9);
@@ -61,6 +67,7 @@ function studioEnvironment() {
   return t;
 }
 const studio = studioEnvironment();
+const gelStudio = studioEnvironment(true);
 scene.environment = studio;
 scene.environmentIntensity = 0.85;
 const key = new THREE.DirectionalLight(0xfff6f0, 1.05);
@@ -91,14 +98,15 @@ function addFloor() {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: `uniform sampler2D tDiffuse; varying vec4 vUv; varying vec3 vW;
         void main(){ vec2 uv = vUv.xy / vUv.w; vec3 c = vec3(0.0); float w = 0.0;
-          for (int i = -3; i <= 3; i++) { float k = 1.0 - abs(float(i)) / 4.0; float s = float(i) * 0.0016;
-            c += texture2D(tDiffuse, uv + vec2(s * 0.5, s * 1.6)).rgb * k; w += k; }
+          for (int i = -3; i <= 3; i++) for (int j = -1; j <= 1; j++) {
+            float k = 1.0 - abs(float(i)) / 4.0;
+            c += texture2D(tDiffuse, uv + vec2(float(j) * 0.0022 + float(i) * 0.0007, float(i) * 0.0028)).rgb * k; w += k; }
           // reflections die away a short step from each object, as on honed stone
           float row = mix(-0.15, -0.09, smoothstep(0.1, 0.22, abs(vW.x)));
           float k = exp(-max(vW.z - row, 0.0) * mix(16.0, 26.0, smoothstep(0.1, 0.2, abs(vW.x))));
           float gelSide = exp(-pow(length((vW.xz - vec2(0.0, 0.1)) * vec2(0.8, 1.6)) / 0.1, 4.0));
           float glow = 0.0035 * exp(-dot(vW.xz, vW.xz) * 9.0);
-          gl_FragColor = vec4(c / w * 0.5 * max(k, gelSide * 0.6) + vec3(glow, glow * 0.92, glow * 1.06), 1.0);
+          gl_FragColor = vec4(c / w * 0.4 * max(k, gelSide * 0.6) + vec3(glow, glow * 0.92, glow * 1.06), 1.0);
           #include <colorspace_fragment>
         }`,
     },
@@ -780,9 +788,9 @@ function dressObjects(root) {
     m.roughness = 0.012;
     m.specularIntensity = 1;
     m.envMap = studio;
-    m.envMapIntensity = 1.7;
+    m.envMapIntensity = 1.4;
     m.ior = 1.52;
-    m.thickness = /PIPETTE/.test(m.name) ? 0.001 : 0.0032;
+    m.thickness = /PIPETTE/.test(m.name) ? 0.001 : /SERUM/.test(m.name) ? 0.0032 : 0.0012;
   }
   for (const g of glass) {
     const pipette = /PIPETTE/.test(g.material.name);
@@ -871,7 +879,7 @@ function setupInner(gltf) {
   stage = new THREE.Group();     // gel and contents turn together at the end
   scene.add(stage);
   stage.add(slime);
-  applyGel(slime, studio);
+  applyGel(slime, gelStudio);
   slime.layers.set(LAYER_MAIN);
   volume = buildVolume(slime.geometry);
   inside = new THREE.Group();
