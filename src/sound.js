@@ -161,10 +161,10 @@ export class GelSound {
     this.travel = 0;
     const k = Math.min(1, move * 260);
     if (this.stretching) {
-      this.step = Math.random() < 0.25 ? between(0.024, 0.04) : between(0.01, 0.018);
+      this.step = Math.random() < 0.25 ? rand(0.024, 0.04) : rand(0.01, 0.018);
       this.play('stretch', k);
     } else {
-      this.step = Math.random() < 0.3 ? between(0.022, 0.04) : between(0.008, 0.018);
+      this.step = Math.random() < 0.3 ? rand(0.022, 0.04) : rand(0.008, 0.018);
       this.play('knead', k);
     }
   }
