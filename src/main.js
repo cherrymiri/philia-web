@@ -185,8 +185,8 @@ function applyLayout() {
   const pxPerM = h / (2 * camera.position.distanceTo(v3(...(portrait ? CAMERA.portrait : CAMERA.wide).target)) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
   const labelW = portrait ? Math.floor((w - 16) / 5) - 2 : Math.min(150, Math.max(104, pxPerM * 0.048));
   app.style.setProperty('--w', `${labelW}px`);
-  app.style.setProperty('--name', portrait ? '11.5px' : '15px');
-  app.style.setProperty('--mean', portrait ? '10.5px' : '12.5px');
+  app.style.setProperty('--name', portrait ? '11.5px' : `${Math.max(11, Math.min(15, w * 0.0115))}px`);
+  app.style.setProperty('--mean', portrait ? '10.5px' : `${Math.max(9.5, Math.min(12.5, w * 0.0096))}px`);
   INGREDIENTS.forEach((def, i) => {
     const it = items.get(def.id);
     if (!it) return;
