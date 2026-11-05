@@ -308,8 +308,8 @@ function dropPiece(type, from, target, finalQ, startScale, finalScale, opts = {}
 }
 
 /* ---------- cups ---------- */
-const CUP_R = 0.0175;
-const CUP_H = 0.03;
+const CUP_R = 0.021;
+const CUP_H = 0.033;
 async function pour(it) {
   const { def, node } = it;
   const type = def.id;
@@ -868,7 +868,7 @@ function handUI() {
 
 function setup(gltf) {
   setupInner(gltf);
-  refine({ root: gltf.scene, studio, subdivideFills: !lowQuality });
+  refine({ root: gltf.scene, studio });
 }
 function setupInner(gltf) {
   const root = gltf.scene;
@@ -897,8 +897,8 @@ function setupInner(gltf) {
   for (const def of INGREDIENTS) {
     const isPart = def.kind === 'part';
     const node = root.getObjectByName(`${isPart ? 'CUP' : 'SERUM'}_${def.id}`);
-    const height = isPart ? 0.034 : 0.09;
-    const radius = isPart ? 0.019 : 0.015;
+    const height = isPart ? 0.037 : 0.09;
+    const radius = isPart ? 0.022 : 0.015;
     const proxy = new THREE.Mesh(new THREE.CylinderGeometry(radius * 1.25, radius * 1.25, height, 12), proxyMat);
     proxy.visible = false;
     proxy.userData.id = def.id;

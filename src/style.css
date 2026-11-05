@@ -77,5 +77,6 @@ canvas{touch-action:none}
 .portrait .intro{display:none}
 .portrait #title{top:max(46px,env(safe-area-inset-top,0px))}
 
-.label{text-shadow:0 0 6px #000,0 0 14px #000}
+.label{text-shadow:0 0 3px #000,0 0 6px #000,0 0 12px #000,0 0 20px #000}
+.label span{color:#d6d0da}
 .portrait .label span{word-break:keep-all;white-space:normal}

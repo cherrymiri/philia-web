@@ -37,6 +37,9 @@ export function applyGel(slime, env) {
   gel.envMap = env;
   gel.envMapIntensity = 1.5;
   gel.depthWrite = false;
+  gel.iridescence = 0.35;
+  gel.iridescenceIOR = 1.32;
+  gel.iridescenceThicknessRange = [180, 480];
   tint.gel = gel;
   slime.geometry = slime.geometry.clone(); // working copy, the loaded source stays as it is
 
@@ -62,7 +65,7 @@ export function applyGel(slime, env) {
         float threads = caustic(vR*95.0) * (0.35 + 0.65*e) + 0.6*caustic(vR*160.0 + 7.0)*e;
         vec3 pale = mix(vec3(1.0, 0.80, 0.88), vec3(0.92, 0.84, 1.0), noise(vR*60.0));
         vec3 c = vec3(v) * vec3(1.0, 0.97, 1.05)
-          + pale * (0.1 + 0.14*e + 0.13*threads) * mix(0.5, 1.0, vDown)
+          + pale * (0.1 + 0.14*e + 0.05*threads) * mix(0.5, 1.0, vDown)
           + pale * ring * e;
         // the colour the gel has soaked up lights its whole body
         c = mix(c, c*(tintColor*1.1+0.15), min(1.0, tintAmt*1.1));
