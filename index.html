@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>PHILIA — 우정의 사랑</title>
+<title>PHILIA — 우정적 사랑 · When Love Responds</title>
 </head>
 <body>
 <div id="app">
@@ -11,10 +11,25 @@
   <div id="labels"></div>
   <header id="title">
     <div class="title-row"><span class="rule"></span><h1>PHILIA</h1><span class="rule"></span></div>
-    <p class="subtitle">우정의 사랑</p>
+    <p class="subtitle">우정적 사랑</p>
     <p class="intro">함께 쌓아 온 시간의 조각을 직접 고르고, 섞고, 만지며 나만의 우정을 완성합니다.</p>
   </header>
   <div id="corner"><button id="reset" type="button">처음부터 다시</button></div>
+  <button id="fsbtn" type="button" aria-label="전체화면" aria-pressed="false" hidden>
+    <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <section id="opening" aria-label="PHILIA 오프닝">
+    <div class="op-inner">
+      <p class="op-kicker">WHEN LOVE RESPONDS</p>
+      <h1 class="op-title">PHILIA</h1>
+      <p class="op-sub">우정적 사랑</p>
+      <i class="op-rule" aria-hidden="true"></i>
+      <p class="op-desc">우리는 서로 다른 모습으로 만납니다.<br>함께 웃고, 때로는 부딪히며 서로에게 작은 흔적을 남깁니다.<br>그렇게 쌓인 순간들은 어느새 우리만의 모양이 됩니다.</p>
+      <p class="op-guide">지금 말랑이를 만지고 꾸미며 우정의 흔적을 남겨보세요.</p>
+      <button id="startbtn" class="op-btn" type="button">체험 시작하기</button>
+    </div>
+  </section>
   <div id="guide" hidden><b>이제 직접 섞어보세요.</b><span>재료는 언제든 더 추가할 수 있어요.</span></div>
   <button id="mixbtn" type="button">말랑이 섞기</button>
   <div id="mixbar" hidden>

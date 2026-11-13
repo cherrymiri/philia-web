@@ -12,6 +12,8 @@ import { makeName } from './naming.js';
 import { renderStill, composeCard, saveCanvas } from './save.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { refine } from './finish.js';
+import { setupOpening } from './opening.js';
+setupOpening();
 import * as store from './state.js';
 import { animate, wait, ease, stepTweens } from './tween.js';
 import { applyGel, buildVolume, edgeLight, tint } from './gel.js';
