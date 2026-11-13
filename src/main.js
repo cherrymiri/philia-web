@@ -13,6 +13,7 @@ import { renderStill, composeCard, saveCanvas } from './save.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { refine } from './finish.js';
 import { setupOpening } from './opening.js';
+import { exportCutout } from './cutout.js';
 setupOpening();
 import * as store from './state.js';
 import { animate, wait, ease, stepTweens } from './tween.js';
@@ -950,7 +951,7 @@ function setupInner(gltf) {
   if (plastic) { deform.restore(plastic); pigment.bend(deform); }
   syncButtons();
   window.PHILIA = {
-    ready: true, scene, camera, items, select, finishDropper, resetAll,
+    ready: true, exportCutout: (longSide, elevation) => exportCutout({ renderer, scene, camera, keep: stage, gel: slime, longSide, elevation }), scene, camera, items, select, finishDropper, resetAll,
     state: store.snapshot, summary: store.summary, volume, layers, setMode, makeName, tint, get hand() { return hand; }, get mode() { return mode; }, get mix() { return mix; },
     get pigment() { return pigment; }, get parts() { return partEngine; }, get deform() { return deform; },
     THREE, slime, idle: () => !working && !queue.length && !pending.size,
