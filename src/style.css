@@ -128,3 +128,9 @@ canvas{touch-action:none}
 .portrait #cam{width:min(112px,30vw);top:max(10px,env(safe-area-inset-top,0px));right:10px}
 .portrait #camctl{flex-direction:column;gap:4px}
 .portrait #camctl button{font-size:11px;padding:5px 6px}
+/* phones: mix buttons in one row across the bottom, messages above the gel, full-screen button
+   up beside "처음부터 다시" so nothing at the bottom overlaps */
+.portrait #mixbar{left:10px;right:10px;transform:none;max-width:none;gap:6px}
+.portrait #mixbar button{padding-inline:12px}
+.portrait #handmsg{bottom:auto;top:max(54px,calc(env(safe-area-inset-top,0px) + 46px));max-width:calc(100vw - 150px);font-size:12.5px}
+.portrait #fsbtn{bottom:auto;top:max(10px,env(safe-area-inset-top,0px));right:auto;left:112px;width:30px;height:30px}
