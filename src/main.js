@@ -146,8 +146,10 @@ function wideSlots() {
   ];
 }
 function portraitSlots() {
+  // Same scene as the wide view, folded into two rows: everything stands behind the gel, the three
+  // serums and two cups at the back, five cups in front of them, the gel nearest the camera.
   const xs = [-0.098, -0.049, 0, 0.049, 0.098];
-  return [...xs.map((x) => [x, 0.118]), ...xs.map((x) => [x, 0.222])]; // serums first, so they sit nearest the gel
+  return [...xs.map((x) => [x, -0.3]), ...xs.map((x) => [x, -0.15])];
 }
 function cameraPose(m) {
   const c = portrait ? CAMERA.portrait : CAMERA.wide;
@@ -852,8 +854,11 @@ function handUI() {
       }
     },
     drawHands(hands) {
+      // dots follow the real frame shape (phones often send portrait frames)
+      if (video.videoWidth && (dots.width !== video.videoWidth || dots.height !== video.videoHeight)) { dots.width = video.videoWidth; dots.height = video.videoHeight; }
       g.clearRect(0, 0, dots.width, dots.height);
       $('camcount').textContent = hands.length > 1 ? '두 손 인식 중' : hands.length ? '손 인식 중' : '손을 보여 주세요';
+      $('camcount').dataset.n = String(hands.length);
       if (!previewOn) return;
       for (const hd of hands) {
         const pt = (i) => [(1 - hd.lm[i].x) * dots.width, hd.lm[i].y * dots.height];

@@ -57,8 +57,9 @@ html,body{overscroll-behavior:none;touch-action:none;-webkit-user-select:none;us
 #labels{transition:opacity .35s}
 .mixing #labels{opacity:0;visibility:hidden}
 canvas{touch-action:none}
-#camcount{position:absolute;left:6px;bottom:4px;font-size:11px;color:var(--fg);text-shadow:0 0 3px #000}
-#cam.collapsed #camcount{display:none}
+#camcount{align-self:flex-end;padding:3px 9px;border-radius:999px;font-size:11px;color:var(--fg);background:rgba(0,0,0,.55);border:1px solid var(--line)}
+/* recognition state stays visible when the preview is hidden */
+#camcount[data-n="0"]{color:var(--dim)}
 
 #title{position:absolute;top:max(20px,env(safe-area-inset-top,0px));left:0;right:0;text-align:center;pointer-events:none;color:var(--fg);transition:opacity .5s}
 .title-row{display:flex;align-items:center;justify-content:center;gap:clamp(16px,2.6vw,36px)}
@@ -74,8 +75,9 @@ canvas{touch-action:none}
 .label b{font-weight:500;letter-spacing:.02em}
 .label span{font-weight:300;letter-spacing:.01em}
 .portrait #corner{bottom:auto;top:max(10px,env(safe-area-inset-top,0px));left:10px}
-.portrait .intro{display:none}
-.portrait #title{top:max(46px,env(safe-area-inset-top,0px))}
+.portrait .intro{display:block;max-width:300px;margin-top:6px;font-size:11px;line-height:1.5}
+.portrait #title{top:max(44px,calc(env(safe-area-inset-top,0px) + 34px))}
+.portrait #title h1{font-size:26px}
 
 .label{text-shadow:0 0 3px #000,0 0 6px #000,0 0 12px #000,0 0 20px #000}
 .label span{color:#d6d0da}
@@ -120,3 +122,9 @@ canvas{touch-action:none}
 #fsbtn svg{width:17px;height:17px}
 #fsbtn .fs-exit,#fsbtn[aria-pressed="true"] .fs-enter{display:none}
 #fsbtn[aria-pressed="true"] .fs-exit{display:block}
+@media (max-height:740px){.portrait .intro{display:none}}
+
+/* phones: smaller camera panel so it never sits on the gel or the title */
+.portrait #cam{width:min(112px,30vw);top:max(10px,env(safe-area-inset-top,0px));right:10px}
+.portrait #camctl{flex-direction:column;gap:4px}
+.portrait #camctl button{font-size:11px;padding:5px 6px}

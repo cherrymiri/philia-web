@@ -8,6 +8,7 @@ const MODEL_REMOTE = 'https://storage.googleapis.com/mediapipe-models/hand_landm
 const PINCH_ON = 0.32;   // thumb-index gap relative to palm size
 const PINCH_OFF = 0.5;
 const STEADY = 3;        // a hand shape must hold this many frames before it counts
+const STEADY_MS = 90;    // ...or this long, so slow phone cameras don't add lag
 const LOST_MS = 500;     // keep the grip through short tracking gaps
 const REACH = 1.35;      // a little gain so the edges are easy to reach
 const HANDS = 2;
@@ -58,7 +59,10 @@ export class HandInput {
     }
     status('카메라를 준비하고 있어요.');
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
+      // Small frames: the model works at about 224 px anyway, and phones keep their frame rate up.
+      const phone = matchMedia('(pointer: coarse)').matches;
+      const video = { facingMode: 'user', width: { ideal: phone ? 480 : 640 }, height: { ideal: phone ? 360 : 480 }, frameRate: { ideal: 30, max: 30 } };
+      this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
     } catch (e) {
       this.stream = null;
       status(e.name === 'NotAllowedError' ? '카메라 권한이 없어요. 마우스나 터치로 이용해 주세요.' : '카메라를 찾지 못했어요. 마우스나 터치로 이용해 주세요.');
@@ -100,7 +104,9 @@ export class HandInput {
   loop() {
     if (!this.running) return;
     const video = this.ui.video;
-    if (this.landmarker && video.readyState >= 2 && !video.paused) {
+    // one inference per new camera frame, never twice on the same picture
+    if (this.landmarker && video.readyState >= 2 && !video.paused && video.currentTime !== this.lastFrame) {
+      this.lastFrame = video.currentTime;
       const now = performance.now();
       try {
         const r = this.landmarker.detectForVideo(video, now);
@@ -166,19 +172,26 @@ export class HandInput {
     t.raw = { x: h.mx, y: h.my };
     const shape = this.readShape(h.lm, t);
     if (shape === t.candidate) t.steady++;
-    else { t.candidate = shape; t.steady = 1; }
-    if (t.steady >= STEADY) t.shape = shape;
+    else { t.candidate = shape; t.steady = 1; t.since = now; }
+    if (t.steady >= STEADY || (t.steady >= 2 && now - t.since >= STEADY_MS)) t.shape = shape;
     // Palm follows the hand with a steady filter, fingers ride on it, so the hand holds its shape.
     const video = this.ui.video;
-    const stretch = ((video.videoWidth || 4) / (video.videoHeight || 3)) / this.camera.aspect;
+    const videoAspect = (video.videoWidth || 4) / (video.videoHeight || 3);
+    const screenAspect = this.camera.aspect;
+    // Landscape screens map the camera picture across the whole view, as before. On a tall phone
+    // that would make up-and-down moves far bigger than sideways ones, so there the picture keeps
+    // its proportions (sideways spans the width), with a floor so the gel stays easy to reach.
+    const tall = screenAspect < 0.9;
+    const ky = tall ? Math.max(screenAspect / videoAspect, 0.55) : 1;
+    const kxFinger = tall ? 1 : videoAspect / screenAspect;
     const cx = t.fx.filter((h.mx - 0.5) * 2 * REACH, now);
-    const cy = t.fy.filter(-(h.my - 0.5) * 2 * REACH, now);
+    const cy = t.fy.filter(-(h.my - 0.5) * 2 * REACH * ky, now);
     if (!t.offsets) t.offsets = h.lm.map(() => ({ x: 0, y: 0 }));
     const follow = t.screen ? 0.62 : 1;
     t.screen = h.lm.map((p, i) => {
       const o = t.offsets[i];
-      o.x += (-(p.x - (1 - h.mx)) * 2 * REACH * stretch - o.x) * follow;
-      o.y += (-(p.y - h.my) * 2 * REACH - o.y) * follow;
+      o.x += (-(p.x - (1 - h.mx)) * 2 * REACH * kxFinger - o.x) * follow;
+      o.y += (-(p.y - h.my) * 2 * REACH * ky - o.y) * follow;
       return { x: cx + o.x, y: cy + o.y };
     });
     this.act(t);

@@ -38,7 +38,7 @@ export const POUR = { tilt: 0.66, rimHeight: 0.066, gravity: 0.8, sink: 0.55 };
 // Row of objects on a dark reflective floor, seen from low in front, gel forward in the middle.
 export const CAMERA = {
   wide: { fov: 16, elevation: 21, azimuth: 0, target: [0, 0.03, -0.045], halfW: 0.232, halfH: 0.128 },
-  portrait: { fov: 20, elevation: 54, azimuth: 0, target: [0, 0.012, 0.082], halfW: 0.125, halfH: 0.25 },
+  portrait: { fov: 20, elevation: 50, azimuth: 0, target: [0, 0.02, -0.142], halfW: 0.125, halfH: 0.25 },
   mix: { fov: 18, elevation: 50, azimuth: 0, target: [0, 0.008, 0.002], halfW: 0.13, halfH: 0.082 },
   mixPortrait: { fov: 18, elevation: 54, azimuth: 0, target: [0, 0.008, 0.002], halfW: 0.074, halfH: 0.13 },
   ending: { fov: 18, elevation: 38, azimuth: 0, target: [0, 0.006, 0.022], halfW: 0.13, halfH: 0.088 },
