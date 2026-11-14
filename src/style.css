@@ -134,3 +134,4 @@ canvas{touch-action:none}
 .portrait #mixbar button{padding-inline:12px}
 .portrait #handmsg{bottom:auto;top:max(54px,calc(env(safe-area-inset-top,0px) + 46px));max-width:calc(100vw - 150px);font-size:12.5px}
 .portrait #fsbtn{bottom:auto;top:max(10px,env(safe-area-inset-top,0px));right:auto;left:112px;width:30px;height:30px}
+.portrait #guide{top:max(50px,calc(env(safe-area-inset-top,0px) + 44px))}
