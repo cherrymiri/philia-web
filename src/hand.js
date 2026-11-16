@@ -16,7 +16,7 @@ const TIPS = [4, 8, 12, 16, 20];
 const PALM = [0, 5, 9, 13, 17];
 const LIGHT_FINGER = { depth: 0.0038, radius: 0.0075 };  // an open hand resting on the gel
 const LIGHT_PALM = { depth: 0.0028, radius: 0.02 };
-const HAND_GRAB = { reach: 1.3, edgeAt: 0.45 };          // hands may grab the edge from a little way off
+const HAND_GRAB = { reach: 1.3, edgeAt: 0.3 };           // like the sandwich: grab almost anywhere and pull to stretch
 // Moving the hand toward the camera makes it bigger in the picture: that is a push.
 const PUSH_FROM = 1.1;   // hand size over its resting size where a push starts
 const PUSH_FULL = 1.4;   // ...and where it is a full press
@@ -81,7 +81,7 @@ export class HandInput {
     try {
       status('손 인식을 불러오고 있어요.');
       await this.load();
-      status('주먹을 쥐거나 손바닥을 화면 쪽으로 밀면 잡혀요. 가장자리를 잡고 옆으로 당겨 늘려 보세요.');
+      status('동그라미가 손이 닿는 곳이에요. 주먹을 쥐거나 엄지·검지로 집어서 쭈욱 당겨 보세요.');
       setTimeout(() => status(''), 6000);
     } catch (e) {
       console.error(e);
@@ -93,6 +93,7 @@ export class HandInput {
     this.running = true;
     this.loop();
   }
+  get gap() { return matchMedia('(pointer: coarse)').matches ? 60 : 0; }
   async load() {
     if (this.landmarker) return;
     const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
@@ -110,9 +111,10 @@ export class HandInput {
     if (!this.running) return;
     const video = this.ui.video;
     // one inference per new camera frame, never twice on the same picture
-    if (this.landmarker && video.readyState >= 2 && !video.paused && video.currentTime !== this.lastFrame) {
+    const now = performance.now();
+    if (this.landmarker && video.readyState >= 2 && !video.paused && video.currentTime !== this.lastFrame && now - (this.lastDetect || 0) >= this.gap) {
       this.lastFrame = video.currentTime;
-      const now = performance.now();
+      this.lastDetect = now;
       try {
         const r = this.landmarker.detectForVideo(video, now);
         this.feed(r.landmarks.map((lm, i) => ({ lm, world: r.worldLandmarks?.[i] })), now);
@@ -156,7 +158,7 @@ export class HandInput {
     }
     const live = this.trackers.filter((t) => t.screen);
     this.ui.drawHands(seen.filter((h) => h.tracker).map((h) => ({ lm: h.lm, shape: h.tracker.shape })));
-    this.ui.overlay(live.map((t) => ({ pts: t.screen, shape: t.shape })));
+    this.ui.overlay(live.map((t) => ({ pts: t.screen, shape: t.shape, cursor: t.cursor, holding: t.holding })));
   }
   // What the whole hand is doing, from all five fingers.
   readShape(lm, t) {
@@ -183,12 +185,10 @@ export class HandInput {
     const video = this.ui.video;
     const videoAspect = (video.videoWidth || 4) / (video.videoHeight || 3);
     const screenAspect = this.camera.aspect;
-    // Landscape screens map the camera picture across the whole view, as before. On a tall phone
-    // that would make up-and-down moves far bigger than sideways ones, so there the picture keeps
-    // its proportions (sideways spans the width), with a floor so the gel stays easy to reach.
-    const tall = screenAspect < 0.9;
-    const ky = tall ? Math.max(screenAspect / videoAspect, 0.55) : 1;
-    const kxFinger = tall ? 1 : videoAspect / screenAspect;
+    // Same as the sandwich piece: the camera picture is spread over the whole screen, so small
+    // hand moves reach every part of it, up-and-down as easily as sideways.
+    const ky = 1;
+    const kxFinger = videoAspect / screenAspect;
     const cx = t.fx.filter((h.mx - 0.5) * 2 * REACH, now);
     const cy = t.fy.filter(-(h.my - 0.5) * 2 * REACH * ky, now);
     if (!t.offsets) t.offsets = h.lm.map(() => ({ x: 0, y: 0 }));
@@ -224,7 +224,10 @@ export class HandInput {
       if (t.shape === 'pinch') want.set('grab', { pos: mid(at(4), at(8)) });
       else if (t.shape === 'poke') want.set('grab', { pos: at(8) });
       else if (t.shape === 'fist' || t.pushing) want.set('grab', { pos: palm });
-      else {
+      // one clear point per hand, drawn as a ring on screen, so you can see where you will touch
+      t.cursor = want.get('grab')?.pos || (t.shape === 'fist' ? palm : at(8));
+      t.holding = false;
+      if (!want.has('grab')) {
         // resting open hand: soft contacts that deepen as the hand comes closer
         const k = 1 + t.push * 2.5;
         want.set('palm', { pos: palm, light: { depth: LIGHT_PALM.depth * k, radius: LIGHT_PALM.radius } });
@@ -243,6 +246,7 @@ export class HandInput {
         else if (t.held.has(key)) { this.engine.release(id); t.held.delete(key); }
       } else if (t.held.has(key)) this.engine.drag(p, id);
       else if (this.engine.press(p, id, HAND_GRAB)) t.held.add(key);
+      if (key === 'grab' && t.held.has(key)) t.holding = true;
     }
   }
   letGo(t) {

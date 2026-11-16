@@ -850,7 +850,17 @@ function handUI() {
       lg.clearRect(0, 0, w, h);
       for (const hd of hands) {
         const pt = (i) => [(hd.pts[i].x * 0.5 + 0.5) * w, (-hd.pts[i].y * 0.5 + 0.5) * h];
-        skeleton(lg, pt, SHAPE_COLOR[hd.shape], hd.shape === 'open' ? 0.3 : 0.5, 1.5, 2, 4);
+        skeleton(lg, pt, SHAPE_COLOR[hd.shape], hd.shape === 'open' ? 0.22 : 0.4, 1.5, 2, 4);
+        if (!hd.cursor) continue;
+        // the touching point, big and clear (as in the sandwich piece): ring when hovering, filled when holding
+        const cx = (hd.cursor.x * 0.5 + 0.5) * w; const cy = (-hd.cursor.y * 0.5 + 0.5) * h;
+        const r = hd.holding ? 13 : 17;
+        lg.beginPath(); lg.arc(cx, cy, r, 0, Math.PI * 2);
+        lg.fillStyle = hd.holding ? 'rgba(255,150,190,0.55)' : 'rgba(255,255,255,0.12)';
+        lg.fill();
+        lg.lineWidth = 3; lg.strokeStyle = hd.holding ? 'rgba(255,190,215,0.95)' : 'rgba(255,255,255,0.9)';
+        lg.shadowColor = 'rgba(0,0,0,0.6)'; lg.shadowBlur = 6;
+        lg.stroke(); lg.shadowBlur = 0;
       }
     },
     drawHands(hands) {
