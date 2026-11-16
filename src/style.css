@@ -17,7 +17,7 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 #dropbar[hidden]{display:none}
 #dropmsg{word-break:keep-all}
 #dropdone{border-color:var(--accent);color:var(--accent);white-space:nowrap}
-.portrait #dropbar{top:max(56px,env(safe-area-inset-top,0px));bottom:auto}
+.portrait #dropbar{top:auto;bottom:max(18px,env(safe-area-inset-bottom,0px));flex-wrap:wrap;row-gap:10px;text-align:center}
 .is-locked .label{cursor:default;opacity:.45}
 .is-locked .label.is-active{opacity:1}
 .is-locked .label:hover b{color:var(--fg)}
