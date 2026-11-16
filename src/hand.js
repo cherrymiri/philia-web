@@ -16,7 +16,12 @@ const TIPS = [4, 8, 12, 16, 20];
 const PALM = [0, 5, 9, 13, 17];
 const LIGHT_FINGER = { depth: 0.0038, radius: 0.0075 };  // an open hand resting on the gel
 const LIGHT_PALM = { depth: 0.0028, radius: 0.02 };
-const FIST = { depth: 0.0125, radius: 0.026 };           // the whole hand squeezing
+const HAND_GRAB = { reach: 1.3, edgeAt: 0.45 };          // hands may grab the edge from a little way off
+// Moving the hand toward the camera makes it bigger in the picture: that is a push.
+const PUSH_FROM = 1.1;   // hand size over its resting size where a push starts
+const PUSH_FULL = 1.4;   // ...and where it is a full press
+const PUSH_ON = 0.4;     // an open hand pushed this far takes hold, like a mouse button
+const PUSH_OFF = 0.18;
 export const CONNECTIONS = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
   [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
 
@@ -36,11 +41,11 @@ class OneEuro {
 
 class Tracker {
   constructor(id) {
-    Object.assign(this, { id, fx: new OneEuro(), fy: new OneEuro(), offsets: null, raw: null, seen: -1e9, shape: 'open', candidate: 'open', steady: 0, pinched: false, held: new Set(), screen: null });
+    Object.assign(this, { id, fx: new OneEuro(), fy: new OneEuro(), offsets: null, raw: null, seen: -1e9, shape: 'open', candidate: 'open', steady: 0, pinched: false, held: new Set(), screen: null, rest: 0, size: 0, push: 0, pushing: false });
   }
   clear() {
     this.fx.reset(); this.fy.reset();
-    Object.assign(this, { offsets: null, raw: null, shape: 'open', candidate: 'open', steady: 0, pinched: false, screen: null });
+    Object.assign(this, { offsets: null, raw: null, shape: 'open', candidate: 'open', steady: 0, pinched: false, screen: null, rest: 0, size: 0, push: 0, pushing: false });
   }
 }
 
@@ -76,7 +81,7 @@ export class HandInput {
     try {
       status('손 인식을 불러오고 있어요.');
       await this.load();
-      status('엄지와 검지로 잡고, 주먹으로 꾹, 검지로 콕 눌러 보세요.');
+      status('주먹을 쥐거나 손바닥을 화면 쪽으로 밀면 잡혀요. 가장자리를 잡고 옆으로 당겨 늘려 보세요.');
       setTimeout(() => status(''), 6000);
     } catch (e) {
       console.error(e);
@@ -194,6 +199,17 @@ export class HandInput {
       o.y += (-(p.y - h.my) * 2 * REACH * ky - o.y) * follow;
       return { x: cx + o.x, y: cy + o.y };
     });
+    // Hand size in camera pixels (palm length, wrist to middle knuckle). The resting size follows
+    // quickly when the hand draws back and only slowly when it comes closer, so a push reads as a
+    // push for a few seconds and then quietly becomes the new rest.
+    const vw = video.videoWidth || 640; const vh = video.videoHeight || 480;
+    const size = Math.hypot((h.lm[0].x - h.lm[9].x) * vw, (h.lm[0].y - h.lm[9].y) * vh);
+    t.size = t.size ? t.size + (size - t.size) * 0.5 : size;
+    if (!t.rest) t.rest = t.size;
+    t.rest += (t.size - t.rest) * (t.size < t.rest ? 0.12 : 0.012);
+    const ratio = t.size / t.rest;
+    t.push = Math.min(1, Math.max(0, (ratio - PUSH_FROM) / (PUSH_FULL - PUSH_FROM)));
+    t.pushing = t.pushing ? t.push > PUSH_OFF : t.push > PUSH_ON;
     this.act(t);
   }
   // Turn the hand shape into contacts. Everything ends up as the same engine commands.
@@ -203,11 +219,15 @@ export class HandInput {
       const at = (i) => t.screen[i];
       const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
       const palm = PALM.map(at).reduce((v, p) => ({ x: v.x + p.x / 5, y: v.y + p.y / 5 }), { x: 0, y: 0 });
+      // Holding: pinch, pointed finger, fist, or an open hand pushed toward the screen. A hold
+      // that starts near the rim and moves outward stretches the gel; inward it folds.
       if (t.shape === 'pinch') want.set('grab', { pos: mid(at(4), at(8)) });
       else if (t.shape === 'poke') want.set('grab', { pos: at(8) });
-      else if (t.shape === 'fist') want.set('palm', { pos: palm, light: FIST });
+      else if (t.shape === 'fist' || t.pushing) want.set('grab', { pos: palm });
       else {
-        want.set('palm', { pos: palm, light: LIGHT_PALM });
+        // resting open hand: soft contacts that deepen as the hand comes closer
+        const k = 1 + t.push * 2.5;
+        want.set('palm', { pos: palm, light: { depth: LIGHT_PALM.depth * k, radius: LIGHT_PALM.radius } });
         TIPS.forEach((tip, i) => want.set(`tip${i}`, { pos: at(tip), light: LIGHT_FINGER }));
       }
     }
@@ -222,7 +242,7 @@ export class HandInput {
         if (this.engine.touch(p, id, w.light)) t.held.add(key);
         else if (t.held.has(key)) { this.engine.release(id); t.held.delete(key); }
       } else if (t.held.has(key)) this.engine.drag(p, id);
-      else if (this.engine.press(p, id)) t.held.add(key);
+      else if (this.engine.press(p, id, HAND_GRAB)) t.held.add(key);
     }
   }
   letGo(t) {

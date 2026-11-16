@@ -16,14 +16,16 @@ export class MixEngine {
   }
 
   /* ---------- common commands ---------- */
-  press(pt, id = 'pointer') {
+  // `reach` and `edgeAt` are relative to the rim: hands are less exact than a mouse, so they may
+  // grab a little outside the gel and count as holding the edge from further in.
+  press(pt, id = 'pointer', { reach = 1.14, edgeAt = 0.64 } = {}) {
     if (this.contacts.has(id)) return true;
     const r = Math.hypot(pt.x, pt.z) || 1e-6;
     const rim = this.volume.rim(pt.x, pt.z);
-    if (r > rim * 1.14) return false;
+    if (r > rim * reach) return false;
     const inner = pt.x * Math.min(1, (rim * 0.94) / r);
     const innerZ = pt.z * Math.min(1, (rim * 0.94) / r);
-    const edge = r > rim * 0.64;
+    const edge = r > rim * edgeAt;
     const d = this.deform.add('press', { x: inner, z: innerZ });
     d.a.goal = 0.008;
     this.contacts.set(id, { kind: 'press', edge, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0 });
