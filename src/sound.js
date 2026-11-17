@@ -3,18 +3,13 @@
 //   squeeze_d  "Wet Squishy sound" by ricexzeeb    freesound.org/s/151184
 //   slip_a     "Slime 7.wav" by Archos             freesound.org/s/433827
 //   slip_b     "slime - squishing sounds" by rubberduck9999  freesound.org/s/680447
-//   drop_a     "Water Drip Free" by AardsReal       freesound.org/s/842164
-//   drop_b     "sink_water_drip.wav" by swiftoid    freesound.org/s/117302
-//   plop_a-c   "A series of \"Plopp\" sounds" by dermotte  freesound.org/s/610756
 // Browsers only allow sound after a tap or click, so the first one unlocks it (PC and phones alike).
-const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b', 'drop_a', 'drop_b', 'plop_a', 'plop_b', 'plop_c'];
-const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1, drop_a: 0.42, drop_b: 0.36, plop_a: 0.6, plop_b: 0.55, plop_c: 0.55 };
+const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b'];
+const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1 };
 const SQUEEZES = ['squeeze_a', 'squeeze_d'];
-const DROPS = ['drop_a', 'drop_b'];
-const PLOPS = ['plop_a', 'plop_b', 'plop_c'];
 const MAX_VOICES = 4;
 
-let ctx = null; let out = null; let voices = 0; let lastSqueeze = -1; let lastPick = ''; let lastPlop = -1;
+let ctx = null; let out = null; let voices = 0; let lastSqueeze = -1; let lastPick = '';
 const bufs = {};
 
 function decode(data) {
@@ -72,18 +67,6 @@ export const sfx = {
     lastPick = n; lastSqueeze = ctx.currentTime;
     play(n, { gain: 0.22 + 0.78 * k, lp: 1600 + k * 14000, rate: 1.07 - 0.1 * k + (Math.random() - 0.5) * 0.06 });
     return true;
-  },
-  // A pigment drop meets the gel surface.
-  drop() {
-    const n = DROPS[Math.floor(Math.random() * DROPS.length)];
-    play(n, { rate: 0.96 + Math.random() * 0.1 });
-  },
-  // A part sinks into the gel. Glitter is lighter and higher.
-  plop(light = false) {
-    if (!ctx || ctx.currentTime - lastPlop < 0.04) return;
-    lastPlop = ctx.currentTime;
-    const n = PLOPS[Math.floor(Math.random() * PLOPS.length)];
-    play(n, light ? { gain: 0.35, rate: 1.35 + Math.random() * 0.15, lp: 9000 } : { rate: 0.92 + Math.random() * 0.16 });
   },
   // A stretch slides out long (slip_a); a fold or a let-go is the stickier slip_b.
   slip(name, strength) {
