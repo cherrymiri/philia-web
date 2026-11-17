@@ -13,6 +13,7 @@ import { renderStill, composeCard, saveCanvas } from './save.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { refine } from './finish.js';
 import { setupOpening } from './opening.js';
+import { sfx } from './sound.js';
 import { exportCutout } from './cutout.js';
 setupOpening();
 import * as store from './state.js';
@@ -348,6 +349,7 @@ async function pour(it) {
   const glitter = type === 'GLITTER';
   const seed = Math.floor(Math.random() * 1e9);
   let pinch = null;
+  if (glitter) sfx.glitter();
   for (let n = 0; n < cfg.perPour; n++) {
     await wait(glitter ? rand(0.008, 0.02) : rand(0.045, 0.085)); // pieces slide out on their own
     // rim lowest point, cup is tilted to the right
@@ -526,6 +528,7 @@ async function fallDroplet(it, from, target, surfaceY) {
     m.scale.set(1.6 / Math.sqrt(v), 1.6 * v, 1.6 / Math.sqrt(v));
   }, ease.linear);
   ripples.fire(m.position, 0.0075, 0.5);
+  sfx.drop();
   pigment.splat(target.x, target.z, type);
   pigment.remeasure();
   pigment.setCounts(store.summary().pigments);

@@ -3,9 +3,11 @@
 //   squeeze_d  "Wet Squishy sound" by ricexzeeb    freesound.org/s/151184
 //   slip_a     "Slime 7.wav" by Archos             freesound.org/s/433827
 //   slip_b     "slime - squishing sounds" by rubberduck9999  freesound.org/s/680447
+//   drop       "water drop" by florianreichelt  freesound.org/s/683102
+//   glitter    "Dropping handful of seeds / pills / beads" by Wigglesworth  freesound.org/s/833732
 // Browsers only allow sound after a tap or click, so the first one unlocks it (PC and phones alike).
-const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b'];
-const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1 };
+const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b', 'drop', 'glitter'];
+const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1, drop: 0.5, glitter: 0.9 };
 const SQUEEZES = ['squeeze_a', 'squeeze_d'];
 const MAX_VOICES = 4;
 
@@ -68,6 +70,10 @@ export const sfx = {
     play(n, { gain: 0.22 + 0.78 * k, lp: 1600 + k * 14000, rate: 1.07 - 0.1 * k + (Math.random() - 0.5) * 0.06 });
     return true;
   },
+  // A pigment drop meets the gel.
+  drop() { play('drop', { rate: 0.95 + Math.random() * 0.1 }); },
+  // Glitter pours out all at once: one sound per pour.
+  glitter() { play('glitter'); },
   // A stretch slides out long (slip_a); a fold or a let-go is the stickier slip_b.
   slip(name, strength) {
     const k = clamp(strength);
