@@ -299,6 +299,7 @@ function dropPiece(type, from, target, finalQ, startScale, finalScale, opts = {}
     }, ease.linear);
     landed.copy(q);
     if (!opts.quiet) ripples.fire(hit, 0.0055);
+    if (type !== 'GLITTER') sfx.part();
     await animate(POUR.sink, (e) => {
       p.lerpVectors(hit, target, e);
       q.slerpQuaternions(landed, finalQ, e);

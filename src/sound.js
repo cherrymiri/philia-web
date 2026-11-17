@@ -5,13 +5,16 @@
 //   slip_b     "slime - squishing sounds" by rubberduck9999  freesound.org/s/680447
 //   drop       "water drop" by florianreichelt  freesound.org/s/683102
 //   glitter    "Dropping handful of seeds / pills / beads" by Wigglesworth  freesound.org/s/833732
+//   part_a     "Water Click" by Mafon2              freesound.org/s/371274
+//   part_c     "SOFT TAPPING" by stevielematt       freesound.org/s/707827
+//   part_e     "soft-plastic-pings.aif" by alienistcog  freesound.org/s/125166
 // Browsers only allow sound after a tap or click, so the first one unlocks it (PC and phones alike).
-const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b', 'drop', 'glitter'];
-const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1, drop: 0.5, glitter: 0.9 };
+const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b', 'drop', 'glitter', 'part_a', 'part_c', 'part_e'];
+const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1, drop: 0.5, glitter: 0.9, part_a: 0.32, part_c: 0.5, part_e: 0.9 };
 const SQUEEZES = ['squeeze_a', 'squeeze_d'];
 const MAX_VOICES = 4;
 
-let ctx = null; let out = null; let voices = 0; let lastSqueeze = -1; let lastPick = '';
+let ctx = null; let out = null; let voices = 0; let lastSqueeze = -1; let lastPick = ''; let lastPart = -1;
 const bufs = {};
 
 function decode(data) {
@@ -74,6 +77,14 @@ export const sfx = {
   drop() { play('drop', { rate: 0.95 + Math.random() * 0.1 }); },
   // Glitter pours out all at once: one sound per pour.
   glitter() { play('glitter'); },
+  // A part lands on the gel: mostly part_a, sometimes part_c, now and then part_e.
+  part() {
+    if (!ctx || ctx.currentTime - lastPart < 0.035) return;
+    lastPart = ctx.currentTime;
+    const r = Math.random();
+    const n = r < 0.6 ? 'part_a' : r < 0.85 ? 'part_c' : 'part_e';
+    play(n, { gain: 0.7 + Math.random() * 0.3, rate: 0.94 + Math.random() * 0.12 });
+  },
   // A stretch slides out long (slip_a); a fold or a let-go is the stickier slip_b.
   slip(name, strength) {
     const k = clamp(strength);
