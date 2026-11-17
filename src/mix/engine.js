@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FOLD_HINGE } from './deform.js';
+import { sfx } from '../sound.js';
 
 // Mixing engine. Input code only ever calls press / drag / stretch / fold / release, with
 // positions on the gel in slime-local metres. A hand tracker can call the same methods.
@@ -28,7 +29,8 @@ export class MixEngine {
     const edge = r > rim * edgeAt;
     const d = this.deform.add('press', { x: inner, z: innerZ });
     d.a.goal = 0.008;
-    this.contacts.set(id, { kind: 'press', edge, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0 });
+    this.contacts.set(id, { kind: 'press', edge, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0, rub: 0 });
+    sfx.squeeze(0.55);
     return true;
   }
   // Light contact from part of a hand: a fingertip or the palm. It dents and carries what is
@@ -42,7 +44,8 @@ export class MixEngine {
     }
     if (!this.volume.fits(pt.x, pt.z, 0.0005)) return false;
     const d = this.deform.add('press', { x: pt.x, z: pt.z, R: radius });
-    this.contacts.set(id, { kind: 'touch', light: true, depth, radius, start: { ...pt }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0 });
+    this.contacts.set(id, { kind: 'touch', light: true, depth, radius, start: { ...pt }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0, rub: 0 });
+    if (depth >= 0.006) sfx.squeeze(depth / 0.0125, 0.18);
     return true;
   }
   drag(pt, id = 'pointer') {
@@ -65,6 +68,7 @@ export class MixEngine {
     g.d.held = false; g.d.a.goal = 0;
     const d = this.deform.add('stretch', { x: g.start.x, z: g.start.z });
     Object.assign(g, { kind: 'stretch', d, seed: Math.random() * 40 });
+    sfx.slip('slip_a', 0.8);
   }
   fold(id = 'pointer') {
     const g = this.contacts.get(id);
@@ -77,6 +81,7 @@ export class MixEngine {
     const grab = g.start.x * n.x + g.start.z * n.z;
     const d = this.deform.add('fold', { nx: n.x, nz: n.z, grab });
     Object.assign(g, { kind: 'fold', d, n, grab, seed: Math.random() * 40 });
+    sfx.slip('slip_b', 0.7);
   }
   release(id = 'pointer') {
     const g = this.contacts.get(id);
@@ -93,6 +98,9 @@ export class MixEngine {
       const s0 = g.d.grab - g.d.a.v * FOLD_HINGE;
       this.comb = { x: g.n.x * s0, z: g.n.z * s0, tx: -g.n.z, tz: g.n.x, left: 12, seed: g.seed };
       this.work += 0.5;
+      sfx.squeeze(0.7, 0);   // the layers meet
+    } else if (g.kind === 'press' && g.held > 0.35) {
+      sfx.slip('slip_b', 0.3);   // the gel lets go of the finger
     }
     if (g.kind !== 'fold' && !g.light) this.deform.remember(g.d);
     g.d.held = false;
@@ -141,10 +149,18 @@ export class MixEngine {
     g.last = { ...g.now };
     g.held += dt;
     this.work += move * 9;
+    if (g.kind === 'press' || g.kind === 'touch') this.kneadSound(g, dt, move);
     if (g.kind === 'touch') this.applyTouch(g, dt, dx, dz, move);
     else if (g.kind === 'press') this.applyPress(g, dt, dx, dz, move);
     else if (g.kind === 'stretch') this.applyStretch(g, dx, dz, move);
     else this.applyFold(g);
+  }
+  kneadSound(g, dt, move) {
+    g.rub += move;
+    if (g.rub < 0.012) return;
+    const depth = g.kind === 'touch' ? g.depth / 0.0125 : g.d.a.goal / 0.0145;
+    const speed = move / Math.max(dt, 1 / 120);   // m/s on the gel
+    if (sfx.squeeze(depth * 0.5 + Math.min(1, speed * 3) * 0.5, 0.2)) g.rub = 0;
   }
   applyTouch(g, dt, dx, dz, move) {
     const d = g.d;
