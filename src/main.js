@@ -13,6 +13,7 @@ import { renderStill, composeCard, saveCanvas } from './save.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { refine } from './finish.js';
 import { setupOpening } from './opening.js';
+import { sfx } from './sound.js';
 import { exportCutout } from './cutout.js';
 setupOpening();
 import * as store from './state.js';
@@ -297,7 +298,7 @@ function dropPiece(type, from, target, finalQ, startScale, finalScale, opts = {}
       layer.set(i, p, q, THREE.MathUtils.lerp(startScale, finalScale * 0.82, u));
     }, ease.linear);
     landed.copy(q);
-    if (!opts.quiet) ripples.fire(hit, 0.0055);
+    if (!opts.quiet) { ripples.fire(hit, 0.0055); sfx.plop(type === 'GLITTER'); }
     await animate(POUR.sink, (e) => {
       p.lerpVectors(hit, target, e);
       q.slerpQuaternions(landed, finalQ, e);
@@ -526,6 +527,7 @@ async function fallDroplet(it, from, target, surfaceY) {
     m.scale.set(1.6 / Math.sqrt(v), 1.6 * v, 1.6 / Math.sqrt(v));
   }, ease.linear);
   ripples.fire(m.position, 0.0075, 0.5);
+  sfx.drop();
   pigment.splat(target.x, target.z, type);
   pigment.remeasure();
   pigment.setCounts(store.summary().pigments);
