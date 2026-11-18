@@ -637,6 +637,7 @@ async function setMode(next) {
   const fromFov = camera.fov;
   const to = cameraPose(next);
   mode = 'moving';
+  sfx.screen();
   syncButtons();
   guide.hidden = true;
   if (prev === 'ending') $('ending').hidden = true;
@@ -688,6 +689,7 @@ function showEnding() {
   $('endname').textContent = makeName(sum);
   $('endused').textContent = usedText();
   $('ending').hidden = false;
+  sfx.ending();
   $('savemsg').textContent = '';
 }
 const CARD_W = () => Math.min(renderer.capabilities.maxTextureSize, portrait ? 2400 : 3600);

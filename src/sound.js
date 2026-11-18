@@ -7,9 +7,10 @@
 //   glitter    "Dropping handful of seeds / pills / beads" by Wigglesworth  freesound.org/s/833732
 //   part_a     "Water Click" by Mafon2              freesound.org/s/371274
 //   part_e     "soft-plastic-pings.aif" by alienistcog  freesound.org/s/125166
+//   screen     bubbly screen-change sound, ending  kalimba + glass ending — both original, synthesized for PHILIA
 // Browsers only allow sound after a tap or click, so the first one unlocks it (PC and phones alike).
-const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b', 'drop', 'glitter', 'part_a', 'part_e'];
-const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1, drop: 0.5, glitter: 0.9, part_a: 0.32, part_e: 0.9 };
+const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b', 'drop', 'glitter', 'part_a', 'part_e', 'screen', 'ending'];
+const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1, drop: 0.5, glitter: 0.9, part_a: 0.32, part_e: 0.9, screen: 0.55, ending: 0.75 };
 const SQUEEZES = ['squeeze_a', 'squeeze_d'];
 const MAX_VOICES = 4;
 
@@ -45,8 +46,8 @@ function unlock() {
 }
 for (const e of ['pointerdown', 'touchend', 'click', 'keydown']) window.addEventListener(e, unlock, { capture: true, passive: true });
 
-function play(name, { gain = 1, rate = 1, lp = 18000 } = {}) {
-  if (!ctx || ctx.state !== 'running' || !bufs[name] || voices >= MAX_VOICES) return;
+function play(name, { gain = 1, rate = 1, lp = 18000, always = false } = {}) {
+  if (!ctx || ctx.state !== 'running' || !bufs[name] || (!always && voices >= MAX_VOICES)) return;
   const s = ctx.createBufferSource();
   s.buffer = bufs[name];
   s.playbackRate.value = rate;
@@ -84,6 +85,10 @@ export const sfx = {
     const n = r < 0.8 ? 'part_a' : 'part_e';
     play(n, { gain: 0.7 + Math.random() * 0.3, rate: 0.94 + Math.random() * 0.12 });
   },
+  // Moving between screens (parts → mix → ending and back): a light bubbly whoosh with the camera move.
+  screen() { play('screen', { always: true }); },
+  // The ending card appears.
+  ending() { play('ending', { always: true }); },
   // A stretch slides out long (slip_a); a fold or a let-go is the stickier slip_b.
   slip(name, strength) {
     const k = clamp(strength);
