@@ -352,7 +352,9 @@ async function pour(it) {
   let pinch = null;
   if (glitter) sfx.glitter();
   for (let n = 0; n < cfg.perPour; n++) {
-    await wait(glitter ? rand(0.008, 0.02) : rand(0.045, 0.085)); // pieces slide out on their own
+    // pieces slide out on their own; glitter falls in pinches of seven at the same pace as the
+    // other parts, so all cups pour for about as long
+    if (!glitter || n % 7 === 0) await wait(rand(0.045, 0.085));
     // rim lowest point, cup is tilted to the right
     node.updateMatrixWorld();
     rimWorld.set(CUP_R, CUP_H, rand(-0.008, 0.008)).applyMatrix4(node.matrixWorld);
