@@ -19,7 +19,7 @@ export class MixEngine {
   /* ---------- common commands ---------- */
   // `reach` and `edgeAt` are relative to the rim: hands are less exact than a mouse, so they may
   // grab a little outside the gel and count as holding the edge from further in.
-  press(pt, id = 'pointer', { reach = 1.14, edgeAt = 0.64 } = {}) {
+  press(pt, id = 'pointer', { reach = 1.14, edgeAt = 0.64, foldAt = edgeAt } = {}) {
     if (this.contacts.has(id)) return true;
     const r = Math.hypot(pt.x, pt.z) || 1e-6;
     const rim = this.volume.rim(pt.x, pt.z);
@@ -27,9 +27,10 @@ export class MixEngine {
     const inner = pt.x * Math.min(1, (rim * 0.94) / r);
     const innerZ = pt.z * Math.min(1, (rim * 0.94) / r);
     const edge = r > rim * edgeAt;
+    const foldOk = r > rim * foldAt;   // pulling inward folds only when the hold began this close to the rim
     const d = this.deform.add('press', { x: inner, z: innerZ });
     d.a.goal = 0.008;
-    this.contacts.set(id, { kind: 'press', edge, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0, rub: 0 });
+    this.contacts.set(id, { kind: 'press', edge, foldOk, start: { x: pt.x, z: pt.z }, last: { x: pt.x, z: pt.z }, now: { x: pt.x, z: pt.z }, d, held: 0, rub: 0 });
     sfx.squeeze(0.55);
     return true;
   }
@@ -58,7 +59,9 @@ export class MixEngine {
     if (g.kind === 'press' && g.edge && len > DRAG_START) {
       const r = Math.hypot(g.start.x, g.start.z) || 1;
       const out = (tx * g.start.x + tz * g.start.z) / r;
-      if (out >= 0) this.stretch(id); else this.fold(id);
+      if (out >= 0) this.stretch(id);
+      else if (g.foldOk) this.fold(id);
+      else { g.d.x = pt.x; g.d.z = pt.z; }   // inward from the middle: just knead, no flip
     } else if (g.kind === 'press') {
       g.d.x = pt.x; g.d.z = pt.z;
     }

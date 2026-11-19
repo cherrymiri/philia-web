@@ -9,15 +9,14 @@ const PINCH_ON = 0.32;   // thumb-index gap relative to palm size
 const PINCH_OFF = 0.5;
 const STEADY = 3;        // a hand shape must hold this many frames before it counts
 const STEADY_MS = 90;    // ...or this long, so slow phone cameras don't add lag
-const LET_GO_MS = 240;   // letting go of a hold needs the open hand to stay open this long (no flicker drops)
-const LOST_MS = 800;     // keep the grip through short tracking gaps (longer: tracking flickers less often ends a touch)
+const LOST_MS = 500;     // keep the grip through short tracking gaps
 const REACH = 1.35;      // a little gain so the edges are easy to reach
 const HANDS = 2;
 const TIPS = [4, 8, 12, 16, 20];
 const PALM = [0, 5, 9, 13, 17];
-const LIGHT_FINGER = { depth: 0.0055, radius: 0.009 };  // an open hand resting on the gel
-const LIGHT_PALM = { depth: 0.0042, radius: 0.024 };
-const HAND_GRAB = { reach: 1.3, edgeAt: 0.62 };           // like the sandwich: grab almost anywhere and pull to stretch
+const LIGHT_FINGER = { depth: 0.0038, radius: 0.0075 };  // an open hand resting on the gel
+const LIGHT_PALM = { depth: 0.0028, radius: 0.02 };
+const HAND_GRAB = { reach: 1.3, edgeAt: 0.3, foldAt: 0.66 }; // stretch from almost anywhere (두 손으로 늘리기), fold only from near the rim           // like the sandwich: grab almost anywhere and pull to stretch
 // Moving the hand toward the camera makes it bigger in the picture: that is a push.
 const PUSH_FROM = 1.1;   // hand size over its resting size where a push starts
 const PUSH_FULL = 1.4;   // ...and where it is a full press
@@ -181,10 +180,7 @@ export class HandInput {
     const shape = this.readShape(h.lm, t);
     if (shape === t.candidate) t.steady++;
     else { t.candidate = shape; t.steady = 1; t.since = now; }
-    const holding = t.shape === 'pinch' || t.shape === 'poke' || t.shape === 'fist';
-    if (holding && shape === 'open') {
-      if (t.steady >= 8 || now - t.since >= LET_GO_MS) t.shape = shape;   // let go only when it really opened
-    } else if (t.steady >= STEADY || (t.steady >= 2 && now - t.since >= STEADY_MS)) t.shape = shape;
+    if (t.steady >= STEADY || (t.steady >= 2 && now - t.since >= STEADY_MS)) t.shape = shape;
     // Palm follows the hand with a steady filter, fingers ride on it, so the hand holds its shape.
     const video = this.ui.video;
     const videoAspect = (video.videoWidth || 4) / (video.videoHeight || 3);
