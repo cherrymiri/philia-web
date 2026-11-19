@@ -14,12 +14,13 @@ const STEADY = 3;        // a hand shape must hold this many frames before it co
 const STEADY_MS = 90;    // ...or this long, so slow phone cameras don't add lag
 const LOST_MS = 500;     // keep the grip through short tracking gaps
 const REACH = 1.35;      // a little gain so the edges are easy to reach
+const FINGER = 0.75;     // hand drawn at a calmer size around the palm
 const HANDS = 2;
 const TIPS = [4, 8, 12, 16, 20];
 const PALM = [0, 5, 9, 13, 17];
 const LIGHT_FINGER = { depth: 0.0038, radius: 0.0075 };  // an open hand resting on the gel
 const LIGHT_PALM = { depth: 0.0028, radius: 0.02 };
-const HAND_GRAB = { reach: 1.3, edgeAt: 0.3, foldAt: 0.66 }; // stretch from almost anywhere (두 손으로 늘리기), fold only from near the rim           // like the sandwich: grab almost anywhere and pull to stretch
+const HAND_GRAB = { reach: 1.3, edgeAt: 0.3, foldAt: 9, dragStart: 0.02 }; // 손: 늘리기·주무르기만, 접기(뒤집힘) 없음 / 손떨림으로 늘어나지 않게 조금 움직여야 시작           // like the sandwich: grab almost anywhere and pull to stretch
 // Moving the hand toward the camera makes it bigger in the picture: that is a push.
 const PUSH_FROM = 1.1;   // hand size over its resting size where a push starts
 const PUSH_FULL = 1.4;   // ...and where it is a full press
@@ -200,7 +201,7 @@ export class HandInput {
     const screenAspect = this.camera.aspect;
     // Same as the sandwich piece: the camera picture is spread over the whole screen, so small
     // hand moves reach every part of it, up-and-down as easily as sideways.
-    const ky = 1.35;   // 위아래는 손을 덜 움직여도 닿게: 웹캠 화면 위·아래 끝에서는 손이 잘려 인식이 끊기기 쉬움
+    const ky = 1;
     const kxFinger = videoAspect / screenAspect;
     const cx = t.fx.filter((h.mx - 0.5) * 2 * REACH, now);
     const cy = t.fy.filter(-(h.my - 0.5) * 2 * REACH * ky, now);
@@ -208,8 +209,9 @@ export class HandInput {
     const follow = t.screen ? 0.62 : 1;
     t.screen = h.lm.map((p, i) => {
       const o = t.offsets[i];
-      o.x += (-(p.x - (1 - h.mx)) * 2 * REACH * kxFinger - o.x) * follow;
-      o.y += (-(p.y - h.my) * 2 * REACH * ky - o.y) * follow;
+      // 손가락은 손바닥 기준으로 실제 손 크기에 가깝게 (예전엔 REACH만큼 커져 손이 화면을 덮고 닿는 점이 흩어졌음)
+      o.x += (-(p.x - (1 - h.mx)) * 2 * FINGER * kxFinger - o.x) * follow;
+      o.y += (-(p.y - h.my) * 2 * FINGER * ky - o.y) * follow;
       return { x: cx + o.x, y: cy + o.y };
     });
     // Hand size in camera pixels (palm length, wrist to middle knuckle). The resting size follows
