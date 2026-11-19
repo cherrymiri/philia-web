@@ -187,7 +187,7 @@ export class HandInput {
     const screenAspect = this.camera.aspect;
     // Same as the sandwich piece: the camera picture is spread over the whole screen, so small
     // hand moves reach every part of it, up-and-down as easily as sideways.
-    const ky = 1;
+    const ky = 1.35;   // 위아래는 손을 덜 움직여도 닿게: 웹캠 화면 위·아래 끝에서는 손이 잘려 인식이 끊기기 쉬움
     const kxFinger = videoAspect / screenAspect;
     const cx = t.fx.filter((h.mx - 0.5) * 2 * REACH, now);
     const cy = t.fy.filter(-(h.my - 0.5) * 2 * REACH * ky, now);
