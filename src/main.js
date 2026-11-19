@@ -816,7 +816,7 @@ function handUI() {
   const dots = $('camdots');
   const layer = $('handlayer');
   const lg = layer.getContext('2d');
-  const SHAPE_COLOR = { open: '255,255,255', pinch: '255,182,204', fist: '255,182,204', poke: '165,239,226' };
+  const SHAPE_COLOR = { open: '255,255,255', grasp: '255,182,204', pinch: '255,182,204', fist: '255,182,204', poke: '165,239,226' };
   const box = $('cam');
   const g = dots.getContext('2d');
   const skeleton = (ctx, pt, rgb, alpha, width, dot, tip) => {

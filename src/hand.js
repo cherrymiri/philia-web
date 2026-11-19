@@ -7,6 +7,9 @@ const MODEL_LOCAL = `${BASE}models/hand_landmarker.task`;
 const MODEL_REMOTE = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 const PINCH_ON = 0.32;   // thumb-index gap relative to palm size
 const PINCH_OFF = 0.5;
+// 다섯 손가락으로 움켜쥐기: 손끝 다섯 개가 한데 모이면(손을 오므리면) 잡기. 손바닥 길이 대비 손끝들의 퍼짐.
+const GRASP_ON = 0.5;    // 이보다 모이면 잡음
+const GRASP_OFF = 0.66;  // 이보다 다시 펴지면 놓음 (사이를 두어 조물조물해도 끊기지 않게)
 const STEADY = 3;        // a hand shape must hold this many frames before it counts
 const STEADY_MS = 90;    // ...or this long, so slow phone cameras don't add lag
 const LOST_MS = 500;     // keep the grip through short tracking gaps
@@ -165,6 +168,16 @@ export class HandInput {
     const d = (a, b) => Math.hypot(lm[a].x - lm[b].x, lm[a].y - lm[b].y);
     const palm = d(0, 9) || 1e-3;
     const gap = d(4, 8) / palm;
+    // five fingertips gathered toward each other = a natural whole-hand grab (조물조물 / 쭈욱 늘리기)
+    const tips = TIPS.map((i) => lm[i]);
+    const cx = tips.reduce((v, p) => v + p.x, 0) / 5, cy = tips.reduce((v, p) => v + p.y, 0) / 5;
+    const spread = tips.reduce((v, p) => v + Math.hypot(p.x - cx, p.y - cy), 0) / 5 / palm;
+    // ...and curled in toward the palm (a flat hand with fingers together is NOT a grab)
+    const pcx = PALM.reduce((v, i) => v + lm[i].x, 0) / 5, pcy = PALM.reduce((v, i) => v + lm[i].y, 0) / 5;
+    const curl = tips.reduce((v, p) => v + Math.hypot(p.x - pcx, p.y - pcy), 0) / 5 / palm;
+    t.grasped = t.grasped ? spread < GRASP_OFF && curl < 0.95 : spread < GRASP_ON && curl < 0.78;
+    t.spread = spread;
+    if (t.grasped) return 'grasp';
     t.pinched = t.pinched ? gap < PINCH_OFF : gap < PINCH_ON;
     if (t.pinched) return 'pinch';
     const out = (tip, pip) => d(tip, 0) > d(pip, 0) * 1.12;
@@ -221,7 +234,10 @@ export class HandInput {
       const palm = PALM.map(at).reduce((v, p) => ({ x: v.x + p.x / 5, y: v.y + p.y / 5 }), { x: 0, y: 0 });
       // Holding: pinch, pointed finger, fist, or an open hand pushed toward the screen. A hold
       // that starts near the rim and moves outward stretches the gel; inward it folds.
-      if (t.shape === 'pinch') want.set('grab', { pos: mid(at(4), at(8)) });
+      if (t.shape === 'grasp') {
+        const tipsMid = TIPS.map(at).reduce((v, p) => ({ x: v.x + p.x / 5, y: v.y + p.y / 5 }), { x: 0, y: 0 });
+        want.set('grab', { pos: mid(tipsMid, palm) });
+      } else if (t.shape === 'pinch') want.set('grab', { pos: mid(at(4), at(8)) });
       else if (t.shape === 'poke') want.set('grab', { pos: at(8) });
       else if (t.shape === 'fist' || t.pushing) want.set('grab', { pos: palm });
       // one clear point per hand, drawn as a ring on screen, so you can see where you will touch
