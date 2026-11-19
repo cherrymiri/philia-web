@@ -9,6 +9,7 @@
 //   part_e     "soft-plastic-pings.aif" by alienistcog  freesound.org/s/125166
 //   screen     bubbly screen-change sound, ending  kalimba + glass ending — both original, synthesized for PHILIA
 // Browsers only allow sound after a tap or click, so the first one unlocks it (PC and phones alike).
+import { speakerOut } from './iosAudio.js';
 const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b', 'drop', 'glitter', 'part_a', 'part_e', 'screen', 'ending'];
 const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1, drop: 0.5, glitter: 0.9, part_a: 0.32, part_e: 0.9, screen: 0.55, ending: 0.75 };
 const SQUEEZES = ['squeeze_a', 'squeeze_d'];
@@ -32,7 +33,7 @@ function setup() {
   comp.threshold.value = -10;
   out = ctx.createGain();
   out.gain.value = 0.8;
-  out.connect(comp).connect(ctx.destination);
+  out.connect(comp).connect(speakerOut(ctx));
   for (const n of NAMES) {
     fetch(`sfx/${n}.mp3`).then((r) => r.arrayBuffer()).then(decode).then((b) => { bufs[n] = b; }).catch(() => {});
   }
