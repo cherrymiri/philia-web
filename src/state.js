@@ -1,6 +1,10 @@
 import { INGREDIENTS } from './config.js';
 
 const KEY = 'philia.mix.v1';
+// 통합 갤러리 안에서 열릴 때는 항상 새로 시작: 이전 관람객이 만든 말랑이(재료·색·모양)를 지움
+try {
+  if (window.self !== window.top) ['philia.mix.v1', 'philia.field.v1', 'philia.plastic.v1'].forEach((k) => localStorage.removeItem(k));
+} catch { /* storage unavailable */ }
 const empty = () => ({ version: 1, sequence: [], parts: [], pigments: [] });
 let store = empty();
 let seq = 0;
