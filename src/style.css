@@ -40,7 +40,7 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 #handlayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #ending{position:absolute;inset:0;pointer-events:none;animation:fade 1.2s ease}
 @keyframes fade{from{opacity:0}to{opacity:1}}
-#endtitle{position:absolute;top:max(22px,env(safe-area-inset-top,0px));left:0;right:0;margin:0;text-align:center;font-size:15px;font-weight:600;letter-spacing:.34em;color:var(--fg)}
+#endtitle{position:absolute;top:max(64px,calc(env(safe-area-inset-top,0px) + 56px));left:0;right:0;margin:0;text-align:center;font-size:15px;font-weight:600;letter-spacing:.34em;color:var(--fg)}
 #endtext{position:absolute;left:16px;right:16px;bottom:max(18px,env(safe-area-inset-bottom,0px));text-align:center;color:var(--fg)}
 #endhead{margin:0 0 6px;font-size:14px;color:var(--dim)}
 #endname{margin:0;font-size:clamp(23px,3vw,30px);font-weight:700;word-break:keep-all}
