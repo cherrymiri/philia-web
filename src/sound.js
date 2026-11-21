@@ -11,7 +11,8 @@
 // Browsers only allow sound after a tap or click, so the first one unlocks it (PC and phones alike).
 import { speakerOut } from './iosAudio.js';
 const NAMES = ['squeeze_a', 'squeeze_d', 'slip_a', 'slip_b', 'drop', 'glitter', 'part_a', 'part_e', 'screen', 'ending'];
-const LEVEL = { squeeze_a: 0.9, squeeze_d: 1, slip_a: 1, slip_b: 1, drop: 0.5, glitter: 0.9, part_a: 0.32, part_e: 0.9, screen: 0.55, ending: 0.75 };
+// Levels shared by all six works (measured loudness): touch sounds about -38 LUFS, scene sounds -33, ending -31.
+const LEVEL = { squeeze_a: 0.18, squeeze_d: 0.58, slip_a: 0.21, slip_b: 0.28, drop: 0.17, glitter: 0.44, part_a: 0.17, part_e: 0.34, screen: 0.15, ending: 0.18 };
 const SQUEEZES = ['squeeze_a', 'squeeze_d'];
 const MAX_VOICES = 4;
 
