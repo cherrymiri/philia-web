@@ -20,6 +20,7 @@ import * as store from './state.js';
 import { animate, wait, ease, stepTweens } from './tween.js';
 import { applyGel, buildVolume, edgeLight, tint } from './gel.js';
 import { PartLayer, Ripples } from './layers.js';
+let handOptOut = false;   // 관람객이 '손 인식 끄기'를 눌렀는지 (그 체험 동안 자동으로 다시 켜지 않음)
 
 const app = document.getElementById('app');
 const canvas = document.getElementById('c');
@@ -576,6 +577,7 @@ function select(id) {
 }
 function resetAll() {
   if (mode === 'moving' || (working && !dropMode.it)) return; // wait for the running animation
+  handOptOut = false;
   hand?.stop();
   finishDropper();
   queue.push(async () => {
@@ -674,6 +676,8 @@ async function setMode(next) {
   }
   if (next === 'ending') showEnding();
   else if (hand?.on && next !== 'mix') hand.stop();
+  // 말랑이 만지기 화면에 들어오면 손 인식이 저절로 켜짐 (PC). 관람객이 '손 인식 끄기'를 누르면 그 체험 동안은 다시 켜지 않음.
+  if (next === 'mix' && hand && !hand.on && !handOptOut && !matchMedia('(pointer: coarse)').matches) hand.start();
 }
 $('mixbtn').addEventListener('click', () => { if (!working) setMode('mix'); });
 $('addbtn').addEventListener('click', () => { if (!mix.busy) setMode('add'); });
@@ -842,7 +846,8 @@ function handUI() {
     $('handbtn').hidden = !!on;
   };
   $('camtoggle').addEventListener('click', () => { previewOn = !previewOn; refresh(); });
-  $('handoff').addEventListener('click', () => { hand.stop(); refresh(); });
+  $('handoff').addEventListener('click', () => { handOptOut = true; hand.stop(); refresh(); });
+  $('handbtn').addEventListener('click', () => { handOptOut = false; });
   $('handbtn').addEventListener('click', () => hand.start().then(refresh));
   return {
     video,
