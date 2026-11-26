@@ -70,7 +70,7 @@ export class HandInput {
     try {
       // Small frames: the model works at about 224 px anyway, and phones keep their frame rate up.
       const phone = matchMedia('(pointer: coarse)').matches;
-      const video = { facingMode: 'user', width: { ideal: phone ? 480 : 640 }, height: { ideal: phone ? 360 : 480 }, frameRate: { ideal: 30, max: 30 } };
+      const video = { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 360 }, frameRate: { ideal: 30, max: 30 } };   // 작은 프레임으로 충분 (모델은 약 224px로 봄)
       this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
     } catch (e) {
       this.stream = null;
@@ -97,7 +97,8 @@ export class HandInput {
     this.running = true;
     this.loop();
   }
-  get gap() { return matchMedia('(pointer: coarse)').matches ? 60 : 0; }
+  // 손 인식 간격(ms): 매 카메라 프레임마다 돌리면 화면 그리기와 GPU를 다퉈 렉이 걸림 → PC 약 20번/초, 휴대폰 약 16번/초
+  get gap() { return matchMedia('(pointer: coarse)').matches ? 60 : 48; }
   async load() {
     if (this.landmarker) return;
     const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');

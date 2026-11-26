@@ -177,10 +177,21 @@ function placeCamera() {
   const p = cameraPose('add');
   setCamera(p.position, p.target, p.fov);
 }
+// 화면 해상도 배율: 아이맥처럼 큰 레티나 화면에서 2배로 그리면 GPU가 버거워 손 인식과 함께 렉이 걸림.
+// PC는 1.25배까지, 손 인식이 켜져 있는 동안은 1배로 낮춰 손 인식에 여유를 줌.
+function renderRatio() {
+  const w = app.clientWidth;
+  if (w < 700) return Math.min(devicePixelRatio, 1.5);
+  return Math.min(devicePixelRatio, hand?.on ? 1 : 1.25);
+}
+function applyRatio() {
+  renderer.setPixelRatio(renderRatio());
+  renderer.setSize(app.clientWidth, app.clientHeight, false);
+}
 function applyLayout() {
   const w = app.clientWidth;
   const h = app.clientHeight;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, w < 700 ? 1.5 : 2));
+  renderer.setPixelRatio(renderRatio());
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   portrait = w / h < 0.9;
@@ -840,6 +851,7 @@ function handUI() {
   let previewOn = true;
   const refresh = () => {
     const on = hand?.on;
+    applyRatio();
     box.hidden = !on;
     box.classList.toggle('collapsed', !previewOn);
     $('camtoggle').textContent = previewOn ? '카메라 숨기기' : '카메라 보기';
@@ -857,7 +869,7 @@ function handUI() {
     // Whole hand on the main view, faint enough to leave the gel readable.
     overlay(hands) {
       const w = app.clientWidth; const h = app.clientHeight;
-      const ratio = Math.min(devicePixelRatio, 2);
+      const ratio = 1;   // 손 겹쳐 그리기는 1배로 충분 (렉 줄이기)
       if (layer.width !== Math.round(w * ratio)) { layer.width = Math.round(w * ratio); layer.height = Math.round(h * ratio); }
       lg.setTransform(ratio, 0, 0, ratio, 0, 0);
       lg.clearRect(0, 0, w, h);
